@@ -336,6 +336,7 @@ function wireEmployeeModal() {
   document.getElementById('addEquipmentBtn').addEventListener('click', addEquipmentItem);
   document.getElementById('addTrainingBtn').addEventListener('click', addTrainingItem);
   document.getElementById('addNoteBtn').addEventListener('click', addNoteItem);
+  document.getElementById('uploadDocumentBtn').addEventListener('click', uploadDocument);
 }
 
 function fileToDataUrl(file) {
@@ -385,10 +386,12 @@ async function openEmployeeModal(employeeId) {
     await loadSubItems(employeeId, 'equipment', 'equipmentList', renderEquipmentLi);
     await loadSubItems(employeeId, 'trainings', 'trainingsList', renderTrainingLi);
     await loadSubItems(employeeId, 'notes', 'notesList', renderNoteLi);
+    await loadDocuments(employeeId);
   } else {
     document.getElementById('equipmentList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('trainingsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('notesList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
+    document.getElementById('documentsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
   }
 }
 
@@ -502,6 +505,69 @@ async function addNoteItem() {
   });
   document.getElementById('noteText').value = '';
   await loadSubItems(editingEmployeeId, 'notes', 'notesList', renderNoteLi);
+}
+
+/* ---- documents ---- */
+
+const MAX_DOCUMENT_BYTES = 14 * 1024 * 1024; // matches storage.rules cap (15MB), with headroom
+
+async function loadDocuments(employeeId) {
+  const snap = await db.collection('employees').doc(employeeId).collection('documents').orderBy('uploadedAt', 'desc').get();
+  const ul = document.getElementById('documentsList');
+  ul.innerHTML = snap.docs.map(d => {
+    const doc = d.data();
+    return `<li>
+      <span>${escapeHtml(doc.name)} <span class="muted">${doc.uploadedAt ? '· ' + fmtDate(doc.uploadedAt) : ''}${doc.uploadedBy ? ' · ' + escapeHtml(doc.uploadedBy) : ''}</span></span>
+      <span>
+        <button class="btn small" data-view-doc="${d.id}">צפייה / הורדה</button>
+        <button class="btn small danger" data-del-doc="${d.id}">מחיקה</button>
+      </span>
+    </li>`;
+  }).join('') || '<li class="muted">אין מסמכים עדיין</li>';
+
+  ul.querySelectorAll('[data-view-doc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const doc = (await db.collection('employees').doc(employeeId).collection('documents').doc(btn.dataset.viewDoc).get()).data();
+      const url = await storage.ref(doc.storagePath).getDownloadURL();
+      window.open(url, '_blank');
+    });
+  });
+  ul.querySelectorAll('[data-del-doc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('למחוק את המסמך לצמיתות?')) return;
+      const ref = db.collection('employees').doc(employeeId).collection('documents').doc(btn.dataset.delDoc);
+      const doc = (await ref.get()).data();
+      await storage.ref(doc.storagePath).delete().catch(() => {});
+      await ref.delete();
+      await loadDocuments(employeeId);
+    });
+  });
+}
+
+async function uploadDocument() {
+  if (!editingEmployeeId) return;
+  const name = document.getElementById('doc_name').value.trim();
+  const file = document.getElementById('doc_file').files[0];
+  const hint = document.getElementById('uploadDocumentHint');
+  if (!name || !file) { hint.textContent = 'יש להזין שם ולבחור קובץ.'; return; }
+  if (file.size > MAX_DOCUMENT_BYTES) { hint.textContent = 'הקובץ גדול מדי (מקסימום 14MB).'; return; }
+
+  hint.textContent = 'מעלה...';
+  try {
+    const docRef = db.collection('employees').doc(editingEmployeeId).collection('documents').doc();
+    const storagePath = `documents/${editingEmployeeId}/${docRef.id}_${file.name}`;
+    await storage.ref(storagePath).put(file);
+    await docRef.set({
+      name, storagePath, contentType: file.type, sizeBytes: file.size,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUser.email
+    });
+    document.getElementById('doc_name').value = '';
+    document.getElementById('doc_file').value = '';
+    hint.textContent = '';
+    await loadDocuments(editingEmployeeId);
+  } catch (e) {
+    hint.textContent = 'שגיאה בהעלאה: ' + e.message;
+  }
 }
 
 /* ---- portal access ---- */

@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() { return request.auth != null; }
+    function isOwnerEmail() { return isSignedIn() && request.auth.token.email == 'v.carmel@gmail.com'; }
+
+    function userDocPath() { return /databases/(default)/documents/users/$(request.auth.uid); }
+    function isAdminUser() { return isSignedIn() && firestore.exists(userDocPath()); }
+    function adminData() { return firestore.get(userDocPath()).data; }
+    function isSuperAdmin() { return isOwnerEmail() || (isAdminUser() && adminData().active == true && adminData().role == 'superadmin'); }
+    function isManagerOfDept(deptId) {
+      return isAdminUser() && adminData().active == true && adminData().role == 'manager' && deptId in adminData().departmentIds;
+    }
+    function isAdminOrManagerOfDept(deptId) { return isSuperAdmin() || isManagerOfDept(deptId); }
+
+    function employeeData(employeeId) { return firestore.get(/databases/(default)/documents/employees/$(employeeId)).data; }
+    function isEmployeeSelf(employeeId) {
+      return isSignedIn()
+        && employeeData(employeeId).uid == request.auth.uid
+        && employeeData(employeeId).portalActive != false;
+    }
+
+    match /documents/{employeeId}/{fileId} {
+      allow read: if isAdminOrManagerOfDept(employeeData(employeeId).departmentId) || isEmployeeSelf(employeeId);
+      allow write: if isAdminOrManagerOfDept(employeeData(employeeId).departmentId) && request.resource.size < 15 * 1024 * 1024;
+      allow delete: if isAdminOrManagerOfDept(employeeData(employeeId).departmentId);
+    }
+  }
+}

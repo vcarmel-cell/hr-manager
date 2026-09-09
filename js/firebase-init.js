@@ -11,6 +11,7 @@ const FIREBASE_CONFIG = {
 if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
 const auth = firebase.auth();
+const storage = firebase.storage();
 
 // Secondary app instance, used only when an admin/manager creates a new
 // portal login for an employee — createUserWithEmailAndPassword() on the

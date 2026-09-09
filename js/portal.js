@@ -49,6 +49,26 @@ async function init() {
 
   await renderSubList(info.employeeId, 'equipment', 'equipmentList', d => `${d.name}${d.date ? ' · ' + d.date : ''}${d.notes ? ' · ' + d.notes : ''}`);
   await renderSubList(info.employeeId, 'trainings', 'trainingsList', d => `${d.name}${d.date ? ' · ' + d.date : ''}${d.expiry ? ' · בתוקף עד ' + d.expiry : ''}`);
+  await renderDocuments(info.employeeId);
+}
+
+async function renderDocuments(employeeId) {
+  const snap = await db.collection('employees').doc(employeeId).collection('documents').orderBy('uploadedAt', 'desc').get();
+  const ul = document.getElementById('documentsList');
+  ul.innerHTML = snap.docs.map(d => `
+    <li>
+      <span>${escapeHtml(d.data().name)} <span class="muted">${d.data().uploadedAt ? '· ' + fmtDate(d.data().uploadedAt) : ''}</span></span>
+      <button class="btn small" data-view-doc="${d.id}">צפייה / הורדה</button>
+    </li>
+  `).join('') || '<li class="muted">אין מסמכים</li>';
+
+  ul.querySelectorAll('[data-view-doc]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const doc = (await db.collection('employees').doc(employeeId).collection('documents').doc(btn.dataset.viewDoc).get()).data();
+      const url = await storage.ref(doc.storagePath).getDownloadURL();
+      window.open(url, '_blank');
+    });
+  });
 }
 
 function renderKv(elId, pairs) {
