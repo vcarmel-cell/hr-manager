@@ -1,6 +1,13 @@
 // Shared across login/admin/portal pages. Depends on firebase-init.js having run first.
 
+// Hardcoded fallback owner — mirrors isHardcodedOwner() in firestore.rules.
+// Bootstraps the very first superadmin (no users/ doc needs to exist yet)
+// and is a recovery path if that doc is ever corrupted. Same convention
+// used in the PDFSign app.
+const HARDCODED_OWNER_EMAIL = 'v.carmel@gmail.com';
+
 // Resolves the signed-in user's role by checking, in order:
+// 0) hardcoded owner email -> superadmin, always
 // 1) users/{uid} -> superadmin or manager (must be active)
 // 2) employees where uid == current uid -> employee (self-service portal only)
 // Returns one of:
@@ -9,6 +16,10 @@
 //   { role: 'employee', employeeId }
 //   null  (no access record found — caller should sign the user out)
 async function resolveCurrentUserRole(user) {
+  if (user.email === HARDCODED_OWNER_EMAIL) {
+    return { role: 'superadmin', departmentIds: [] };
+  }
+
   const userDoc = await db.collection('users').doc(user.uid).get();
   if (userDoc.exists) {
     const data = userDoc.data();

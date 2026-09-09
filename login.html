@@ -21,6 +21,9 @@
     </div>
     <button class="btn primary" id="loginBtn" style="width:100%">כניסה</button>
     <div class="error-msg" id="errorMsg"></div>
+    <p style="text-align:center;margin-top:10px">
+      <a href="#" id="forgotPasswordLink" style="font-size:13px">שכחתי סיסמה</a>
+    </p>
   </div>
 </div>
 
@@ -36,6 +39,20 @@ if (params.get('denied') === '1') errorMsg.textContent = 'למשתמש זה אי
 
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+document.getElementById('forgotPasswordLink').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  if (!email) { errorMsg.textContent = 'נא להזין אימייל ולאחר מכן ללחוץ על "שכחתי סיסמה".'; return; }
+  try {
+    await auth.sendPasswordResetEmail(email);
+    errorMsg.style.color = 'var(--success)';
+    errorMsg.textContent = 'נשלח אימייל לאיפוס סיסמה.';
+  } catch (e2) {
+    errorMsg.style.color = '';
+    errorMsg.textContent = 'שגיאה בשליחת האימייל: ' + e2.message;
+  }
+});
 
 async function doLogin() {
   errorMsg.textContent = '';
