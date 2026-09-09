@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    // Hardcoded fallback owner (bootstraps the first superadmin, and is a
+    // recovery path if the users/ doc for the owner is ever corrupted) —
+    // same convention used in the PDFSign app's rules.
+    function isHardcodedOwner() { return isSignedIn() && request.auth.token.email == 'v.carmel@gmail.com'; }
+
+    function adminDocRef() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function isAdminUser() { return isSignedIn() && exists(adminDocRef()); }
+    function adminData() { return get(adminDocRef()).data; }
+    function isSuperAdmin() { return isHardcodedOwner() || (isAdminUser() && adminData().active == true && adminData().role == 'superadmin'); }
+    function isManager() { return isAdminUser() && adminData().active == true && adminData().role == 'manager'; }
+    function isManagerOfDept(deptId) { return isManager() && deptId in adminData().departmentIds; }
+    function isAdminOrManagerOfDept(deptId) { return isSuperAdmin() || isManagerOfDept(deptId); }
+
+    function employeeDocRef(employeeId) { return /databases/$(database)/documents/employees/$(employeeId); }
+    function isEmployeeSelf(employeeId) {
+      return isSignedIn()
+        && exists(employeeDocRef(employeeId))
+        && get(employeeDocRef(employeeId)).data.uid == request.auth.uid
+        && get(employeeDocRef(employeeId)).data.portalActive != false;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if isSuperAdmin();
+    }
+
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    match /fieldDefs/{fieldId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isAdminOrManagerOfDept(resource.data.departmentId) || isEmployeeSelf(employeeId);
+      allow create: if isAdminOrManagerOfDept(request.resource.data.departmentId);
+      allow update: if isAdminOrManagerOfDept(resource.data.departmentId) || isAdminOrManagerOfDept(request.resource.data.departmentId);
+      allow delete: if isSuperAdmin();
+
+      match /equipment/{itemId} {
+        allow read: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId) || isEmployeeSelf(employeeId);
+        allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
+      }
+      match /trainings/{itemId} {
+        allow read: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId) || isEmployeeSelf(employeeId);
+        allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
+      }
+      match /notes/{itemId} {
+        allow read: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
+        allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
+      }
+    }
+  }
+}
