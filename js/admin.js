@@ -145,13 +145,13 @@ async function loadFieldDefs() {
   renderFieldDefList();
 }
 
-const FIELD_TYPE_LABELS = { text: 'טקסט', number: 'מספר', date: 'תאריך', select: 'רשימה', checkbox: 'תיבת סימון' };
+const CUSTOM_FIELD_TYPE_LABELS = { text: 'טקסט', number: 'מספר', date: 'תאריך', select: 'רשימה', checkbox: 'תיבת סימון' };
 
 function renderFieldDefList() {
   const ul = document.getElementById('fieldDefList');
   ul.innerHTML = fieldDefs.map(f => `
     <li>
-      <span>${escapeHtml(f.label)} <span class="muted">(${FIELD_TYPE_LABELS[f.type] || f.type})</span></span>
+      <span>${escapeHtml(f.label)} <span class="muted">(${CUSTOM_FIELD_TYPE_LABELS[f.type] || f.type})</span></span>
       ${currentRole === 'superadmin' ? `<button class="btn small danger" data-del-field="${f.id}">מחיקה</button>` : ''}
     </li>
   `).join('') || '<li class="muted">אין שדות מותאמים עדיין</li>';
