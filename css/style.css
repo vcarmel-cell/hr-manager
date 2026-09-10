@@ -31,6 +31,7 @@ header.topbar {
 }
 
 header.topbar h1 { font-size: 18px; margin: 0; }
+header.topbar .topbar-logo { height: 36px; max-width: 200px; object-fit: contain; display: block; }
 header.topbar .who { color: var(--muted); font-size: 13px; }
 
 .layout { display: flex; min-height: calc(100vh - 53px); }
