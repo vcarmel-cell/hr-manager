@@ -310,6 +310,52 @@ document.getElementById('empSearch').addEventListener('input', renderEmployeesTa
 document.getElementById('empDeptFilter').addEventListener('change', renderEmployeesTable);
 document.getElementById('empStatusFilter').addEventListener('change', renderEmployeesTable);
 document.getElementById('addEmployeeBtn').addEventListener('click', () => openEmployeeModal(null));
+document.getElementById('seedDemoEmployeeBtn').addEventListener('click', seedDemoEmployee);
+
+async function seedDemoEmployee() {
+  const btn = document.getElementById('seedDemoEmployeeBtn');
+  btn.disabled = true;
+  try {
+    let departmentId = departments[0] && departments[0].id;
+    if (!departmentId) {
+      const deptRef = await db.collection('departments').add({ name: 'כללי', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      departmentId = deptRef.id;
+      await loadDepartments();
+    }
+
+    const empRef = await db.collection('employees').add({
+      firstName: 'ישראל', lastName: 'ישראלי',
+      idNumber: '123456782', birthDate: '1985-06-15',
+      phone: '050-1234567', email: 'israel.israeli@example.com',
+      address: 'הרצל 12, תל אביב',
+      position: 'טכנאי תחזוקה', departmentId,
+      managerName: 'דוד כהן', status: 'active', startDate: '2023-01-01', endDate: '',
+      customFields: {},
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUser.email,
+      portalActive: false
+    });
+
+    await empRef.collection('equipment').add({
+      name: 'מחשב נייד Dell Latitude', date: '2023-01-02', notes: 'מספר סידורי DL-4471',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await empRef.collection('trainings').add({
+      name: 'בטיחות בעבודה', date: '2023-01-10', expiry: '2026-01-10',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await empRef.collection('notes').add({
+      text: 'עובד לדוגמה שנוצר להמחשת המערכת.', authorEmail: currentUser.email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    await loadEmployees();
+    await openEmployeeModal(empRef.id);
+  } catch (e) {
+    alert('שגיאה ביצירת העובד לדוגמה: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function wireEmployeeModal() {
   document.querySelectorAll('.emp-tab-btn').forEach(btn => {
