@@ -25,6 +25,13 @@
   .tpl-sidebar { width: 260px; flex-shrink: 0; position: sticky; top: 16px; }
   .tpl-field-form .field { margin-bottom: 8px; }
   .back-link { font-size: 13px; }
+  .tool-btn-group { display: flex; flex-direction: column; gap: 6px; }
+  .tool-btn {
+    background: #fff; color: var(--text); border: 1px solid var(--border);
+    padding: 10px 12px; font-size: 14px; border-radius: 8px; cursor: pointer; text-align: right;
+  }
+  .tool-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .tpl-overlay.placing { cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -60,8 +67,18 @@
   <div class="tpl-layout" id="tplLayout" style="display:none">
     <div class="tpl-pages" id="tplPages"></div>
     <div class="card tpl-sidebar">
-      <h2>שדה</h2>
-      <p class="muted" id="noFieldSelected">גרור/י על העמוד כדי לצייר שדה חדש, או לחצ/י על שדה קיים לעריכה.</p>
+      <h2>הוספת שדה</h2>
+      <p class="muted">בחר/י סוג שדה, ואז גרור/י מלבן על העמוד כדי לסמן את מיקומו:</p>
+      <div class="tool-btn-group">
+        <button type="button" class="tool-btn" data-type="text">+ טקסט</button>
+        <button type="button" class="tool-btn" data-type="number">+ מספר</button>
+        <button type="button" class="tool-btn" data-type="date">+ תאריך</button>
+        <button type="button" class="tool-btn" data-type="checkbox">+ תיבת סימון</button>
+        <button type="button" class="tool-btn" data-type="signature">+ חתימה</button>
+      </div>
+      <hr style="margin:14px 0;border:none;border-top:1px solid var(--border)">
+      <h2>שדה נבחר</h2>
+      <p class="muted" id="noFieldSelected">אין שדה נבחר. בחר/י סוג למעלה כדי להוסיף שדה חדש, או לחצ/י על שדה קיים בעמוד לעריכה.</p>
       <div class="tpl-field-form" id="fieldForm" style="display:none">
         <div class="field"><label>סוג שדה</label>
           <select id="fld_type">

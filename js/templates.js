@@ -5,6 +5,8 @@ let currentFields = [];
 let currentPdfBytes = null;
 let selectedFieldId = null;
 let pageInfos = []; // { pageWidthPt, pageHeightPt, cssWidth, cssHeight }
+let activeFieldType = null;
+const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], checkbox: [24, 24], signature: [180, 60] };
 
 init();
 
@@ -22,6 +24,10 @@ async function init() {
   document.getElementById('deleteTemplateBtn').addEventListener('click', deleteTemplate);
   document.getElementById('applyFieldBtn').addEventListener('click', applyFieldForm);
   document.getElementById('deleteFieldBtn').addEventListener('click', deleteSelectedField);
+
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.addEventListener('click', () => setActiveTool(btn.dataset.type === activeFieldType ? null : btn.dataset.type));
+  });
 
   await loadPdfLib();
   await loadTemplatesList();
@@ -51,6 +57,7 @@ function resetToNewTemplate() {
   currentFields = [];
   currentPdfBytes = null;
   selectedFieldId = null;
+  setActiveTool(null);
   document.getElementById('templateSelect').value = '';
   document.getElementById('tplName').value = '';
   document.getElementById('tplFile').value = '';
@@ -120,36 +127,47 @@ async function renderAllPages() {
   renderFieldBoxes();
 }
 
+function setActiveTool(type) {
+  activeFieldType = type;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+  document.querySelectorAll('.tpl-overlay').forEach(o => o.classList.toggle('placing', !!type));
+}
+
 function wireOverlayDrawing(overlay, pageIndex) {
   let drawing = null;
   overlay.addEventListener('pointerdown', (e) => {
+    if (!activeFieldType) return; // pick a field type from the sidebar first
     if (e.target !== overlay) return; // clicks on existing field boxes handled separately
     const rect = overlay.getBoundingClientRect();
     drawing = { startX: e.clientX - rect.left, startY: e.clientY - rect.top, page: pageIndex };
     overlay.setPointerCapture(e.pointerId);
   });
-  overlay.addEventListener('pointermove', (e) => {
-    if (!drawing) return;
-    // visual feedback not strictly necessary; field is created on pointerup
-  });
   overlay.addEventListener('pointerup', (e) => {
     if (!drawing) return;
+    const type = activeFieldType;
     const rect = overlay.getBoundingClientRect();
     const endX = e.clientX - rect.left, endY = e.clientY - rect.top;
-    const leftPx = Math.min(drawing.startX, endX), topPx = Math.min(drawing.startY, endY);
-    const widthPx = Math.abs(endX - drawing.startX), heightPx = Math.abs(endY - drawing.startY);
+    let leftPx = Math.min(drawing.startX, endX), topPx = Math.min(drawing.startY, endY);
+    let widthPx = Math.abs(endX - drawing.startX), heightPx = Math.abs(endY - drawing.startY);
     drawing = null;
-    if (widthPx < 15 || heightPx < 10) return; // too small, ignore accidental clicks
 
+    // A plain click (no real drag) places a default-sized box for the chosen type.
+    if (widthPx < 10 || heightPx < 10) {
+      [widthPx, heightPx] = FIELD_DEFAULT_SIZE_PX[type];
+    }
     const boxWidthPx = overlay.clientWidth, boxHeightPx = overlay.clientHeight;
+    leftPx = Math.min(Math.max(leftPx, 0), boxWidthPx - widthPx);
+    topPx = Math.min(Math.max(topPx, 0), boxHeightPx - heightPx);
+
     const pct = pxRectToPct({ leftPx, topPx, widthPx, heightPx }, boxWidthPx, boxHeightPx);
     const field = {
-      id: newId(), type: 'text', page: pageIndex,
+      id: newId(), type, page: pageIndex,
       xPct: pct.xPct, yPct: pct.yPct, wPct: pct.wPct, hPct: pct.hPct,
       label: '', autoFillFrom: '', locked: false
     };
     currentFields.push(field);
     selectedFieldId = field.id;
+    setActiveTool(null);
     renderFieldBoxes();
     openFieldForm(field);
   });
