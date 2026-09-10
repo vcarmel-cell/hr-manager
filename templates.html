@@ -9,7 +9,15 @@
 <style>
   .tpl-layout { display: flex; gap: 16px; align-items: flex-start; }
   .tpl-pages { flex: 1; min-width: 0; }
-  .tpl-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; }
+  /* direction:ltr is deliberate - this wraps a canvas + an absolutely-positioned
+     overlay using plain left/top pixel math, unrelated to the page's RTL text
+     direction. Without it, the page is RTL, this div is a block wider than the
+     canvas inside it, so the canvas (a replaced element narrower than its
+     parent) renders flush against the *right* edge - but CSS left/top are
+     physical properties, not direction-aware, so the overlay (left:0/top:0)
+     stayed pinned to the true left edge instead, landing in the empty space
+     next to the PDF instead of on top of it. */
+  .tpl-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; direction: ltr; }
   .tpl-page-wrap canvas { display: block; }
   .tpl-overlay { position: absolute; top: 0; left: 0; cursor: crosshair; }
   .tpl-field-box {
