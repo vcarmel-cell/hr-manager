@@ -139,8 +139,19 @@ function wireOverlayDrawing(overlay, pageIndex) {
     if (!activeFieldType) return; // pick a field type from the sidebar first
     if (e.target !== overlay) return; // clicks on existing field boxes handled separately
     const rect = overlay.getBoundingClientRect();
-    drawing = { startX: e.clientX - rect.left, startY: e.clientY - rect.top, page: pageIndex };
+    const draftEl = document.createElement('div');
+    draftEl.className = 'tpl-draft-rect';
+    overlay.appendChild(draftEl);
+    drawing = { startX: e.clientX - rect.left, startY: e.clientY - rect.top, page: pageIndex, draftEl };
     overlay.setPointerCapture(e.pointerId);
+  });
+  overlay.addEventListener('pointermove', (e) => {
+    if (!drawing) return;
+    const rect = overlay.getBoundingClientRect();
+    const curX = e.clientX - rect.left, curY = e.clientY - rect.top;
+    const leftPx = Math.min(drawing.startX, curX), topPx = Math.min(drawing.startY, curY);
+    const widthPx = Math.abs(curX - drawing.startX), heightPx = Math.abs(curY - drawing.startY);
+    applyRectPx(drawing.draftEl, { leftPx, topPx, widthPx, heightPx });
   });
   overlay.addEventListener('pointerup', (e) => {
     if (!drawing) return;
@@ -149,6 +160,7 @@ function wireOverlayDrawing(overlay, pageIndex) {
     const endX = e.clientX - rect.left, endY = e.clientY - rect.top;
     let leftPx = Math.min(drawing.startX, endX), topPx = Math.min(drawing.startY, endY);
     let widthPx = Math.abs(endX - drawing.startX), heightPx = Math.abs(endY - drawing.startY);
+    drawing.draftEl.remove();
     drawing = null;
 
     // A plain click (no real drag) places a default-sized box for the chosen type.
@@ -170,6 +182,11 @@ function wireOverlayDrawing(overlay, pageIndex) {
     setActiveTool(null);
     renderFieldBoxes();
     openFieldForm(field);
+  });
+  overlay.addEventListener('pointercancel', () => {
+    if (!drawing) return;
+    drawing.draftEl.remove();
+    drawing = null;
   });
 }
 
