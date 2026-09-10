@@ -57,6 +57,10 @@ service cloud.firestore {
         allow read: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
         allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
       }
+      match /documents/{itemId} {
+        allow read: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId) || isEmployeeSelf(employeeId);
+        allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
+      }
     }
   }
 }
