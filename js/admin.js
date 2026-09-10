@@ -40,7 +40,7 @@ async function init() {
   await loadFieldDefs();
   if (currentRole === 'superadmin') await loadUsers();
   await loadEmployees();
-  await loadTemplatesForSelect();
+  try { await loadTemplatesForSelect(); } catch (e) { console.error('loadTemplatesForSelect failed', e); }
 }
 
 function currentUserLabel() {
@@ -69,9 +69,9 @@ function renderWhoAmI() {
 }
 
 function wireNav() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
+  document.querySelectorAll('.tab-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-btn[data-view]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       document.querySelectorAll('main > section').forEach(s => s.style.display = 'none');
       document.getElementById('view-' + btn.dataset.view).style.display = 'block';
@@ -481,7 +481,7 @@ async function openEmployeeModal(employeeId) {
     await loadSubItems(employeeId, 'trainings', 'trainingsList', renderTrainingLi);
     await loadSubItems(employeeId, 'notes', 'notesList', renderNoteLi);
     await loadDocuments(employeeId);
-    await loadSigningRequests(employeeId);
+    try { await loadSigningRequests(employeeId); } catch (e) { console.error('loadSigningRequests failed', e); }
   } else {
     document.getElementById('equipmentList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('trainingsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
@@ -801,7 +801,7 @@ async function promoteSignedDocument(employeeId, requestId) {
     await db.collection('signingRequests').doc(requestId).update({ resultDocumentId: docRef.id });
 
     await loadDocuments(employeeId);
-    await loadSigningRequests(employeeId);
+    try { await loadSigningRequests(employeeId); } catch (e) { console.error('loadSigningRequests failed', e); }
   } catch (e) {
     alert('שגיאה בהוספת המסמך לתיק: ' + e.message);
   }

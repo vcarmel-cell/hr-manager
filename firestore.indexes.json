@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "templates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "name", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signingRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "employeeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
