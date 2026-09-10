@@ -162,6 +162,11 @@ function buildFieldControl(field, overlay) {
   const input = document.createElement('input');
   input.type = field.type === 'number' ? 'number' : 'text';
   if (field.type === 'date') attachDateMask(input);
+  if (field.type === 'idNumber') {
+    input.inputMode = 'numeric';
+    input.maxLength = 9;
+    input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 9); });
+  }
   if (autoValue != null) input.value = autoValue;
   if (field.locked) input.readOnly = true;
   box.appendChild(input);
@@ -179,6 +184,10 @@ async function submitSigning() {
     const val = ctrl.getValue();
     if (field.type === 'date' && val && !isValidDateStr(val)) {
       errorEl.textContent = `תאריך לא תקין בשדה "${field.label || ''}" (פורמט: DD.MM.YYYY).`;
+      return;
+    }
+    if (!field.locked && field.type === 'idNumber' && val && !isValidIsraeliId(val)) {
+      errorEl.textContent = `מספר ת.ז. לא תקין בשדה "${field.label || 'ת.ז.'}".`;
       return;
     }
     if (!field.locked && field.type === 'signature' && !val) {

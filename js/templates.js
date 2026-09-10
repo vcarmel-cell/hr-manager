@@ -6,7 +6,7 @@ let currentPdfBytes = null;
 let selectedFieldId = null;
 let pageInfos = []; // { pageWidthPt, pageHeightPt, cssWidth, cssHeight }
 let activeFieldType = null;
-const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], checkbox: [24, 24], signature: [180, 60] };
+const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], idNumber: [110, 22], checkbox: [24, 24], signature: [180, 60] };
 
 init();
 

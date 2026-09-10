@@ -12,9 +12,26 @@ const FIELD_TYPE_LABELS = {
   text: 'טקסט',
   number: 'מספר',
   date: 'תאריך',
+  idNumber: 'ת.ז.',
   checkbox: 'תיבת סימון',
   signature: 'חתימה'
 };
+
+// בדיקת ספרת ביקורת לתעודת זהות ישראלית: 9 ספרות (משלימים אפסים משמאל),
+// כל ספרה מוכפלת לסירוגין ב-1/2 (החל מ-1 בספרה הראשונה), תוצאה מעל 9
+// מחסירים ממנה 9, והסכום הכולל חייב להתחלק ב-10 ללא שארית.
+function isValidIsraeliId(value) {
+  const digits = String(value || '').trim();
+  if (!/^\d{1,9}$/.test(digits)) return false;
+  const id = digits.padStart(9, '0');
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    let d = Number(id[i]) * ((i % 2) + 1);
+    if (d > 9) d -= 9;
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
 
 async function loadPdfJs() {
   const mod = await import(PDFJS_SCRIPT_URL);
