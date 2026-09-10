@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR-Manager | חתימה על מסמך</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .sign-wrap { max-width: 760px; margin: 20px auto; padding: 0 16px; }
+  .otp-card { max-width: 360px; margin: 60px auto; text-align: center; }
+  .otp-card input { text-align: center; font-size: 24px; letter-spacing: 6px; }
+  .sign-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; }
+  .sign-page-wrap canvas { display: block; }
+  .sign-overlay { position: absolute; top: 0; left: 0; }
+  .sign-field { position: absolute; box-sizing: border-box; }
+  .sign-field input[type=text], .sign-field input[type=number] {
+    width: 100%; height: 100%; border: 1px solid var(--primary); font-size: 12px; padding: 1px 4px; background: #fffef0;
+  }
+  .sign-field input[readonly] { background: #f0f0f0; border-color: var(--border); color: var(--muted); }
+  .sign-field input[type=checkbox] { width: 100%; height: 100%; margin: 0; }
+  .sign-field canvas.sig-pad { width: 100%; height: 100%; border: 1px dashed var(--primary); background: #fffef0; touch-action: none; }
+  .center-msg { text-align: center; padding: 60px 20px; }
+</style>
+</head>
+<body>
+<div class="sign-wrap">
+  <div class="card" id="otpScreen" style="display:none">
+    <div class="otp-card">
+      <h2>אימות זהות</h2>
+      <p class="muted">נשלח קוד בן 6 ספרות לכתובת האימייל שלך. נא להזין אותו כאן.</p>
+      <input id="otpInput" maxlength="6" inputmode="numeric" placeholder="000000">
+      <button class="btn primary" id="otpSubmitBtn" style="width:100%;margin-top:12px">אימות</button>
+      <p class="error-msg" id="otpError"></p>
+    </div>
+  </div>
+
+  <div id="loadingScreen" class="center-msg">
+    <p class="muted">טוען...</p>
+  </div>
+
+  <div id="doneScreen" class="center-msg" style="display:none">
+    <h2 id="doneTitle"></h2>
+    <p class="muted" id="doneMsg"></p>
+  </div>
+
+  <div id="fillScreen" style="display:none">
+    <div class="card">
+      <h2 id="tplTitle"></h2>
+      <p class="muted">נא למלא את השדות המסומנים ולחתום, ואז ללחוץ "שליחה".</p>
+    </div>
+    <div id="signPages"></div>
+    <div class="card">
+      <button class="btn primary" id="submitSignBtn" style="width:100%">שליחה</button>
+      <p class="error-msg" id="submitError"></p>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-storage-compat.js"></script>
+<script src="js/firebase-init.js"></script>
+<script src="js/pdf-field-utils.js"></script>
+<script src="js/sign.js"></script>
+</body>
+</html>

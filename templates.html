@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR-Manager | תבניות לחתימה</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .tpl-layout { display: flex; gap: 16px; align-items: flex-start; }
+  .tpl-pages { flex: 1; min-width: 0; }
+  .tpl-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; }
+  .tpl-page-wrap canvas { display: block; }
+  .tpl-overlay { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  .tpl-field-box {
+    position: absolute; border: 2px solid var(--primary); background: rgba(47,111,237,.12);
+    cursor: move; box-sizing: border-box; font-size: 11px; color: var(--primary-dark);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 2px;
+  }
+  .tpl-field-box.locked { border-color: var(--success); background: rgba(31,157,85,.12); color: var(--success); }
+  .tpl-field-box .resize-handle {
+    position: absolute; bottom: -5px; left: -5px; width: 12px; height: 12px;
+    background: var(--primary); border-radius: 50%; cursor: nwse-resize;
+  }
+  .tpl-sidebar { width: 260px; flex-shrink: 0; position: sticky; top: 16px; }
+  .tpl-field-form .field { margin-bottom: 8px; }
+  .back-link { font-size: 13px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <img src="logo.png" alt="ניהול כוח אדם" class="topbar-logo">
+  <div>
+    <span class="who" id="whoAmI"></span>
+    <button class="btn small" id="logoutBtn">התנתקות</button>
+  </div>
+</header>
+
+<main style="padding:20px">
+  <p class="back-link"><a href="admin.html">← חזרה לניהול</a></p>
+
+  <div class="card">
+    <h2>תבניות מסמכים לחתימה</h2>
+    <div class="toolbar">
+      <select id="templateSelect"><option value="">-- תבנית חדשה --</option></select>
+      <button class="btn" id="newTemplateBtn">תבנית חדשה</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field"><label>שם התבנית</label><input id="tplName" placeholder="לדוגמא: הסכם עבודה"></div>
+      <div class="field"><label>קובץ PDF</label><input type="file" id="tplFile" accept="application/pdf"></div>
+    </div>
+    <button class="btn primary" id="saveTemplateBtn">שמירת תבנית</button>
+    <button class="btn danger" id="deleteTemplateBtn" style="display:none">מחיקת תבנית</button>
+    <p class="hint" id="tplHint"></p>
+  </div>
+
+  <div class="tpl-layout" id="tplLayout" style="display:none">
+    <div class="tpl-pages" id="tplPages"></div>
+    <div class="card tpl-sidebar">
+      <h2>שדה</h2>
+      <p class="muted" id="noFieldSelected">גרור/י על העמוד כדי לצייר שדה חדש, או לחצ/י על שדה קיים לעריכה.</p>
+      <div class="tpl-field-form" id="fieldForm" style="display:none">
+        <div class="field"><label>סוג שדה</label>
+          <select id="fld_type">
+            <option value="text">טקסט</option>
+            <option value="number">מספר</option>
+            <option value="date">תאריך</option>
+            <option value="checkbox">תיבת סימון</option>
+            <option value="signature">חתימה</option>
+          </select>
+        </div>
+        <div class="field"><label>תווית (לזיהוי בלבד)</label><input id="fld_label"></div>
+        <div class="field"><label>מילוי אוטומטי מתיק העובד</label>
+          <select id="fld_autofill">
+            <option value="">-- מילוי ידני ע"י החותם --</option>
+            <option value="fullName">שם מלא</option>
+            <option value="firstName">שם פרטי</option>
+            <option value="lastName">שם משפחה</option>
+            <option value="idNumber">ת.ז.</option>
+            <option value="position">תפקיד</option>
+            <option value="departmentName">מחלקה/סניף</option>
+            <option value="startDate">תאריך תחילת עבודה</option>
+            <option value="phone">טלפון</option>
+            <option value="email">אימייל</option>
+            <option value="address">כתובת</option>
+            <option value="birthDate">תאריך לידה</option>
+            <option value="today">תאריך שליחה</option>
+          </select>
+        </div>
+        <div class="field"><label><input type="checkbox" id="fld_locked" style="width:auto"> נעול (החותם לא יכול לערוך)</label></div>
+        <button class="btn primary small" id="applyFieldBtn">עדכון שדה</button>
+        <button class="btn danger small" id="deleteFieldBtn">מחיקת שדה</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-storage-compat.js"></script>
+<script src="js/firebase-init.js"></script>
+<script src="js/auth-common.js"></script>
+<script src="js/pdf-field-utils.js"></script>
+<script src="js/templates.js"></script>
+</body>
+</html>

@@ -4,6 +4,8 @@ let fieldDefs = [];
 let employees = [];
 let editingEmployeeId = null;
 let photoDataUrl = null;
+let currentEmployeeData = {};
+let signTemplates = [];
 
 const MAX_PHOTO_BYTES = 250000; // raw file size cap before base64 encoding
 const DEFAULT_AVATAR_32 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' fill='%23e6e9ee'/%3E%3C/svg%3E";
@@ -22,18 +24,23 @@ async function init() {
 
   if (currentRole !== 'superadmin') {
     document.getElementById('usersTabBtn').style.display = 'none';
+  } else {
+    document.getElementById('templatesLinkBtn').style.display = 'block';
   }
+  document.getElementById('templatesLinkBtn').addEventListener('click', () => location.href = 'templates.html');
 
   wireNav();
   wireEmployeeModal();
   wireDepartmentsView();
   wireFieldsView();
   wireUsersView();
+  wireSigningView();
 
   await loadDepartments();
   await loadFieldDefs();
   if (currentRole === 'superadmin') await loadUsers();
   await loadEmployees();
+  await loadTemplatesForSelect();
 }
 
 function currentUserLabel() {
@@ -466,16 +473,21 @@ async function openEmployeeModal(employeeId) {
   renderCustomFieldsInModal(data.customFields);
   renderPortalStatus(employeeId, data);
 
+  currentEmployeeData = data;
+  document.getElementById('signRecipientEmail').value = data.email || '';
+
   if (employeeId) {
     await loadSubItems(employeeId, 'equipment', 'equipmentList', renderEquipmentLi);
     await loadSubItems(employeeId, 'trainings', 'trainingsList', renderTrainingLi);
     await loadSubItems(employeeId, 'notes', 'notesList', renderNoteLi);
     await loadDocuments(employeeId);
+    await loadSigningRequests(employeeId);
   } else {
     document.getElementById('equipmentList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('trainingsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('notesList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
     document.getElementById('documentsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
+    document.getElementById('signingRequestsList').innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>';
   }
 }
 
@@ -651,6 +663,147 @@ async function uploadDocument() {
     await loadDocuments(editingEmployeeId);
   } catch (e) {
     hint.textContent = 'שגיאה בהעלאה: ' + e.message;
+  }
+}
+
+/* ---- signing requests (PDFSign-derived e-signature flow) ---- */
+
+async function loadTemplatesForSelect() {
+  const snap = await db.collection('templates').where('active', '==', true).orderBy('name').get();
+  signTemplates = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  document.getElementById('signTemplateSelect').innerHTML =
+    '<option value="">-- בחירת תבנית --</option>' +
+    signTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+}
+
+function resolveAutoFillValue(key, employeeData) {
+  const dept = departments.find(d => d.id === employeeData.departmentId);
+  switch (key) {
+    case 'fullName': return `${employeeData.firstName || ''} ${employeeData.lastName || ''}`.trim();
+    case 'firstName': return employeeData.firstName || '';
+    case 'lastName': return employeeData.lastName || '';
+    case 'idNumber': return employeeData.idNumber || '';
+    case 'position': return employeeData.position || '';
+    case 'departmentName': return dept ? dept.name : '';
+    case 'startDate': return employeeData.startDate ? isoToDdMmYyyy(employeeData.startDate) : '';
+    case 'phone': return employeeData.phone || '';
+    case 'email': return employeeData.email || '';
+    case 'address': return employeeData.address || '';
+    case 'birthDate': return employeeData.birthDate ? isoToDdMmYyyy(employeeData.birthDate) : '';
+    case 'today': return isoToDdMmYyyy(new Date().toISOString().slice(0, 10));
+    default: return '';
+  }
+}
+
+function isoToDdMmYyyy(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+}
+
+function wireSigningView() {
+  document.getElementById('sendForSignatureBtn').addEventListener('click', sendForSignature);
+}
+
+async function sendForSignature() {
+  const hint = document.getElementById('sendForSignatureHint');
+  const templateId = document.getElementById('signTemplateSelect').value;
+  const recipientEmail = document.getElementById('signRecipientEmail').value.trim();
+  if (!editingEmployeeId) { hint.textContent = 'יש לשמור את העובד תחילה.'; return; }
+  if (!templateId) { hint.textContent = 'יש לבחור תבנית.'; return; }
+  if (!recipientEmail) { hint.textContent = 'יש להזין אימייל נמען.'; return; }
+
+  hint.textContent = 'שולח...';
+  try {
+    const template = signTemplates.find(t => t.id === templateId);
+    const fields = JSON.parse(JSON.stringify(template.fields || []));
+    const autoFilledValues = {};
+    fields.forEach(f => { if (f.autoFillFrom) autoFilledValues[f.id] = resolveAutoFillValue(f.autoFillFrom, currentEmployeeData); });
+
+    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+    const otpCodeHash = await sha256Hex(otpCode);
+
+    const reqRef = db.collection('signingRequests').doc();
+    await db.collection('signingSecrets').doc(reqRef.id).set({ otpCodeHash });
+    await reqRef.set({
+      employeeId: editingEmployeeId,
+      employeeName: `${currentEmployeeData.firstName || ''} ${currentEmployeeData.lastName || ''}`.trim(),
+      templateId, templateName: template.name,
+      recipientEmail, fields, autoFilledValues,
+      otpVerified: false, otpAttempts: 0, status: 'sent',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
+    });
+
+    const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
+    const emailed = await sendSigningEmail({
+      to_email: recipientEmail,
+      to_name: currentEmployeeData.firstName || '',
+      subject: `${template.name} - לחתימה`,
+      link, otp_code: otpCode
+    });
+
+    document.getElementById('signRecipientEmail').value = '';
+    hint.textContent = '';
+    await loadSigningRequests(editingEmployeeId);
+    alert(
+      `בקשת החתימה נוצרה.\n\nקישור: ${link}\nקוד אימות: ${otpCode}\n\n` +
+      (emailed ? 'האימייל נשלח אוטומטית לנמען.' : 'לא הוגדר שירות שליחת אימייל (EmailJS) - יש להעתיק ולשלוח את הקישור והקוד ידנית.')
+    );
+  } catch (e) {
+    hint.textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+const SIGNING_STATUS_LABELS = { sent: 'ממתין', signed: 'נחתם', expired: 'פג תוקף' };
+
+async function loadSigningRequests(employeeId) {
+  const snap = await db.collection('signingRequests').where('employeeId', '==', employeeId).orderBy('createdAt', 'desc').get();
+  const ul = document.getElementById('signingRequestsList');
+  ul.innerHTML = snap.docs.map(d => {
+    const r = d.data();
+    const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
+    return `<li>
+      <span>${escapeHtml(r.templateName)} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail)} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+      <span>
+        ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote="${d.id}">הוספה לתיק המסמכים</button>` : ''}
+        ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+        ${r.status === 'sent' ? `<button class="btn small danger" data-expire="${d.id}">ביטול</button>` : ''}
+      </span>
+    </li>`;
+  }).join('') || '<li class="muted">לא נשלחו בקשות חתימה</li>';
+
+  ul.querySelectorAll('[data-promote]').forEach(btn => {
+    btn.addEventListener('click', () => promoteSignedDocument(employeeId, btn.dataset.promote));
+  });
+  ul.querySelectorAll('[data-expire]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await db.collection('signingRequests').doc(btn.dataset.expire).update({ status: 'expired' });
+      await loadSigningRequests(employeeId);
+    });
+  });
+}
+
+async function promoteSignedDocument(employeeId, requestId) {
+  try {
+    const reqDoc = await db.collection('signingRequests').doc(requestId).get();
+    const r = reqDoc.data();
+    const signedPath = `signingRequests/${requestId}/signed.pdf`;
+    const url = await storage.ref(signedPath).getDownloadURL();
+    const res = await fetch(url);
+    const blob = await res.blob();
+
+    const docRef = db.collection('employees').doc(employeeId).collection('documents').doc();
+    const destPath = `documents/${employeeId}/${docRef.id}_signed.pdf`;
+    await storage.ref(destPath).put(blob);
+    await docRef.set({
+      name: `${r.templateName} (חתום)`, storagePath: destPath, contentType: 'application/pdf', sizeBytes: blob.size,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUserLabel()
+    });
+    await db.collection('signingRequests').doc(requestId).update({ resultDocumentId: docRef.id });
+
+    await loadDocuments(employeeId);
+    await loadSigningRequests(employeeId);
+  } catch (e) {
+    alert('שגיאה בהוספת המסמך לתיק: ' + e.message);
   }
 }
 

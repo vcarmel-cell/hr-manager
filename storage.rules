@@ -26,5 +26,25 @@ service firebase.storage {
       allow write: if isAdminOrManagerOfDept(employeeData(employeeId).departmentId) && request.resource.size < 15 * 1024 * 1024;
       allow delete: if isAdminOrManagerOfDept(employeeData(employeeId).departmentId);
     }
+
+    // Master PDF for a reusable signing template. Any signed-in admin/manager
+    // AND the anonymous recipient (needs to render it to fill/sign) can read;
+    // only superadmin (who builds templates) can write.
+    match /templates/{templateId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin() && request.resource.size < 15 * 1024 * 1024;
+    }
+
+    // Flattened signed PDF for one signing request. Write is gated on the
+    // matching Firestore signingRequests doc being OTP-verified and still
+    // 'sent' — mirrors the Firestore rule for the same submission step, so
+    // an anonymous recipient can only write their own already-verified copy.
+    function signingRequestData(requestId) { return firestore.get(/databases/(default)/documents/signingRequests/$(requestId)).data; }
+    match /signingRequests/{requestId}/{fileName} {
+      allow write: if signingRequestData(requestId).status == 'sent'
+        && signingRequestData(requestId).otpVerified == true
+        && request.resource.size < 15 * 1024 * 1024;
+      allow read: if isAdminOrManagerOfDept(employeeData(signingRequestData(requestId).employeeId).departmentId);
+    }
   }
 }

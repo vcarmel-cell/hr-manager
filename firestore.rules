@@ -62,5 +62,58 @@ service cloud.firestore {
         allow write: if isAdminOrManagerOfDept(get(employeeDocRef(employeeId)).data.departmentId);
       }
     }
+
+    match /templates/{templateId} {
+      // Any signed-in admin/manager can read (needed to list templates when
+      // sending one to an employee); only superadmin builds/edits templates.
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    // Top-level (not nested under employees/) so the signing link is just
+    // ?req=<requestId> — the id itself is a long random token and is the
+    // real secret, same proven model as PDFSign's fill.html?id=...
+    match /signingRequests/{requestId} {
+      allow read: if isSignedIn();
+
+      allow create: if isAdminOrManagerOfDept(get(employeeDocRef(request.resource.data.employeeId)).data.departmentId);
+
+      // Recipient (anonymous auth) attempting the OTP code: always allowed to
+      // try (up to 5 times), otpVerified only flips true if the client-computed
+      // hash of what they typed matches the hash in signingSecrets/{requestId}
+      // — real server-side enforcement without a Cloud Function. The hash
+      // itself is never readable by the client (see signingSecrets below),
+      // only comparable via get() inside this rule — otherwise a client could
+      // read the hash and brute-force all 1,000,000 6-digit codes offline
+      // with no rate limit at all.
+      allow update: if resource.data.status == 'sent'
+        && resource.data.otpVerified == false
+        && resource.data.otpAttempts < 5
+        && request.resource.data.otpAttempts == resource.data.otpAttempts + 1
+        && request.resource.data.otpVerified == (request.resource.data.attemptHash == get(/databases/$(database)/documents/signingSecrets/$(requestId)).data.otpCodeHash)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['otpAttempts', 'otpVerified', 'attemptHash']);
+
+      // Recipient submitting the signed result, only once OTP-verified.
+      allow update: if resource.data.status == 'sent'
+        && resource.data.otpVerified == true
+        && request.resource.data.status == 'signed'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'values', 'signedAt']);
+
+      // Admin/manager management (e.g. marking a stale request expired).
+      allow update: if isAdminOrManagerOfDept(get(employeeDocRef(resource.data.employeeId)).data.departmentId);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // Holds only {otpCodeHash} per signing request. Never directly readable
+    // by anyone (including admins, from the client) — the rules above reach
+    // in via get() to compare a submitted hash server-side. This is what
+    // makes the OTP a real secret instead of a client-readable value that
+    // could be brute-forced offline with no rate limit.
+    match /signingSecrets/{requestId} {
+      allow read: if false;
+      allow create: if isSuperAdmin() || isManager();
+      allow update, delete: if false;
+    }
   }
 }
