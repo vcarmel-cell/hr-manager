@@ -2,7 +2,7 @@ init();
 
 async function init() {
   const info = await requireRole(['employee']);
-  document.getElementById('whoAmI').textContent = info.user.email;
+  document.getElementById('whoAmI').textContent = info.name || info.user.email;
   document.getElementById('logoutBtn').addEventListener('click', () => auth.signOut().then(() => location.href = 'login.html'));
 
   const empDoc = await db.collection('employees').doc(info.employeeId).get();

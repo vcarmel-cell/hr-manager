@@ -7,24 +7,26 @@
 const HARDCODED_OWNER_EMAIL = 'v.carmel@gmail.com';
 
 // Resolves the signed-in user's role by checking, in order:
-// 0) hardcoded owner email -> superadmin, always
+// 0) hardcoded owner email -> superadmin, always (name comes from users/{uid} if set)
 // 1) users/{uid} -> superadmin or manager (must be active)
-// 2) employees where uid == current uid -> employee (self-service portal only)
+// 2) employees where uid == current uid -> employee (self-service portal only,
+//    name comes from the employee's own record — always available)
 // Returns one of:
-//   { role: 'superadmin' }
-//   { role: 'manager', departmentIds: [...] }
-//   { role: 'employee', employeeId }
+//   { role: 'superadmin', name }
+//   { role: 'manager', departmentIds: [...], name }
+//   { role: 'employee', employeeId, name }
 //   null  (no access record found — caller should sign the user out)
 async function resolveCurrentUserRole(user) {
   if (user.email === HARDCODED_OWNER_EMAIL) {
-    return { role: 'superadmin', departmentIds: [] };
+    const ownerDoc = await db.collection('users').doc(user.uid).get();
+    return { role: 'superadmin', departmentIds: [], name: (ownerDoc.exists && ownerDoc.data().name) || null };
   }
 
   const userDoc = await db.collection('users').doc(user.uid).get();
   if (userDoc.exists) {
     const data = userDoc.data();
     if (data.active) {
-      return { role: data.role, departmentIds: data.departmentIds || [] };
+      return { role: data.role, departmentIds: data.departmentIds || [], name: data.name || null };
     }
     return null; // revoked admin/manager account
   }
@@ -32,8 +34,9 @@ async function resolveCurrentUserRole(user) {
   const empQuery = await db.collection('employees').where('uid', '==', user.uid).limit(1).get();
   if (!empQuery.empty) {
     const empDoc = empQuery.docs[0];
-    if (empDoc.data().portalActive === false) return null;
-    return { role: 'employee', employeeId: empDoc.id };
+    const empData = empDoc.data();
+    if (empData.portalActive === false) return null;
+    return { role: 'employee', employeeId: empDoc.id, name: `${empData.firstName || ''} ${empData.lastName || ''}`.trim() || null };
   }
 
   return null;

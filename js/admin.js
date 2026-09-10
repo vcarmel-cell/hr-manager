@@ -1,4 +1,4 @@
-let currentUser, currentRole, myDeptIds = [];
+let currentUser, currentRole, currentUserName, myDeptIds = [];
 let departments = [];
 let fieldDefs = [];
 let employees = [];
@@ -14,10 +14,10 @@ async function init() {
   const info = await requireRole(['superadmin', 'manager']);
   currentUser = info.user;
   currentRole = info.role;
+  currentUserName = info.name;
   myDeptIds = info.departmentIds || [];
 
-  document.getElementById('whoAmI').textContent =
-    `${currentUser.email} (${currentRole === 'superadmin' ? 'מנהל-על' : 'מנהל מחלקה'})`;
+  renderWhoAmI();
   document.getElementById('logoutBtn').addEventListener('click', () => auth.signOut().then(() => location.href = 'login.html'));
 
   if (currentRole !== 'superadmin') {
@@ -34,6 +34,31 @@ async function init() {
   await loadFieldDefs();
   if (currentRole === 'superadmin') await loadUsers();
   await loadEmployees();
+}
+
+function currentUserLabel() {
+  return currentUserName || currentUser.email;
+}
+
+function renderWhoAmI() {
+  const roleLabel = currentRole === 'superadmin' ? 'מנהל-על' : 'מנהל מחלקה';
+  const displayName = currentUserName || currentUser.email;
+  const who = document.getElementById('whoAmI');
+  who.innerHTML = `${escapeHtml(displayName)} (${roleLabel})`;
+  if (currentRole === 'superadmin') {
+    who.innerHTML += ` <a href="#" id="editMyNameLink" style="font-size:12px">${currentUserName ? 'עריכת שם' : 'קביעת שם תצוגה'}</a>`;
+    document.getElementById('editMyNameLink').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const name = prompt('שם מלא לתצוגה:', currentUserName || '');
+      if (name === null || !name.trim()) return;
+      await db.collection('users').doc(currentUser.uid).set({
+        name: name.trim(), email: currentUser.email, role: 'superadmin', active: true, departmentIds: []
+      }, { merge: true });
+      currentUserName = name.trim();
+      renderWhoAmI();
+      if (currentRole === 'superadmin') await loadUsers();
+    });
+  }
 }
 
 function wireNav() {
@@ -195,14 +220,15 @@ async function loadUsers() {
   ul.innerHTML = users.map(u => `
     <li>
       <span>
-        ${escapeHtml(u.email)}
+        ${escapeHtml(u.name || u.email)} ${u.id === currentUser.uid ? '<span class="muted">(את/ה)</span>' : ''}
         <span class="badge ${u.active ? 'active' : 'terminated'}">${u.active ? 'פעיל' : 'מושבת'}</span>
         <span class="muted">${u.role === 'superadmin' ? 'מנהל-על' : 'מנהל מחלקה'}</span>
         ${u.role === 'manager' ? `<span class="muted"> · ${(u.departmentIds || []).map(id => escapeHtml(deptName(id))).join(', ') || 'ללא מחלקות'}</span>` : ''}
       </span>
       <span>
+        <button class="btn small" data-edit-name="${u.id}">שם</button>
         ${u.role === 'manager' ? `<button class="btn small" data-edit-depts="${u.id}">מחלקות</button>` : ''}
-        <button class="btn small" data-toggle-user="${u.id}" data-active="${u.active}">${u.active ? 'השבתה' : 'הפעלה'}</button>
+        ${u.id !== currentUser.uid ? `<button class="btn small" data-toggle-user="${u.id}" data-active="${u.active}">${u.active ? 'השבתה' : 'הפעלה'}</button>` : ''}
       </span>
     </li>
   `).join('') || '<li class="muted">אין משתמשי מערכת נוספים</li>';
@@ -211,6 +237,16 @@ async function loadUsers() {
     btn.addEventListener('click', async () => {
       const active = btn.dataset.active === 'true';
       await db.collection('users').doc(btn.dataset.toggleUser).update({ active: !active });
+      await loadUsers();
+    });
+  });
+  ul.querySelectorAll('[data-edit-name]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const u = users.find(x => x.id === btn.dataset.editName);
+      const name = prompt('שם מלא לתצוגה:', u.name || '');
+      if (name === null || !name.trim()) return;
+      await db.collection('users').doc(btn.dataset.editName).update({ name: name.trim() });
+      if (btn.dataset.editName === currentUser.uid) { currentUserName = name.trim(); renderWhoAmI(); }
       await loadUsers();
     });
   });
@@ -237,19 +273,21 @@ async function editManagerDepartments(uid) {
 
 function wireUsersView() {
   document.getElementById('addUserBtn').addEventListener('click', async () => {
+    const name = document.getElementById('newUserName').value.trim();
     const email = document.getElementById('newUserEmail').value.trim();
     const role = document.getElementById('newUserRole').value;
-    if (!email) return;
+    if (!name || !email) { alert('יש להזין שם מלא ואימייל.'); return; }
     const tempPassword = Math.random().toString(36).slice(2) + 'A1!';
     try {
       const secAuth = withSecondaryAuth();
       const cred = await secAuth.createUserWithEmailAndPassword(email, tempPassword);
       await db.collection('users').doc(cred.user.uid).set({
-        email, role, active: true, departmentIds: [],
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUser.email
+        name, email, role, active: true, departmentIds: [],
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
       });
       await secAuth.sendPasswordResetEmail(email);
       await secAuth.signOut();
+      document.getElementById('newUserName').value = '';
       document.getElementById('newUserEmail').value = '';
       await loadUsers();
       alert('המשתמש נוצר, ונשלח אליו אימייל לקביעת סיסמה.');
@@ -331,7 +369,7 @@ async function seedDemoEmployee() {
       position: 'טכנאי תחזוקה', departmentId,
       managerName: 'דוד כהן', status: 'active', startDate: '2023-01-01', endDate: '',
       customFields: {},
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUser.email,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel(),
       portalActive: false
     });
 
@@ -344,7 +382,7 @@ async function seedDemoEmployee() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     await empRef.collection('notes').add({
-      text: 'עובד לדוגמה שנוצר להמחשת המערכת.', authorEmail: currentUser.email,
+      text: 'עובד לדוגמה שנוצר להמחשת המערכת.', authorEmail: currentUserLabel(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
@@ -474,7 +512,7 @@ async function saveEmployee() {
       await db.collection('employees').doc(editingEmployeeId).update(payload);
     } else {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-      payload.createdBy = currentUser.email;
+      payload.createdBy = currentUserLabel();
       payload.portalActive = false;
       const ref = await db.collection('employees').add(payload);
       editingEmployeeId = ref.id;
@@ -547,7 +585,7 @@ async function addNoteItem() {
   const text = document.getElementById('noteText').value.trim();
   if (!text) return;
   await db.collection('employees').doc(editingEmployeeId).collection('notes').add({
-    text, authorEmail: currentUser.email, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    text, authorEmail: currentUserLabel(), createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
   document.getElementById('noteText').value = '';
   await loadSubItems(editingEmployeeId, 'notes', 'notesList', renderNoteLi);
@@ -605,7 +643,7 @@ async function uploadDocument() {
     await storage.ref(storagePath).put(file);
     await docRef.set({
       name, storagePath, contentType: file.type, sizeBytes: file.size,
-      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUser.email
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUserLabel()
     });
     document.getElementById('doc_name').value = '';
     document.getElementById('doc_file').value = '';
