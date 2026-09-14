@@ -35,6 +35,7 @@ async function init() {
   wireFieldsView();
   wireUsersView();
   wireSigningView();
+  wireNotifications();
 
   await loadDepartments();
   await loadFieldDefs();
@@ -315,6 +316,100 @@ async function loadEmployees() {
   const snap = await query.get();
   employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   renderEmployeesTable();
+  renderNotifications();
+}
+
+/* ---- notifications bell: birthdays, contract-end dates, custom reminders ---- */
+
+const NOTIF_DAYS_AHEAD = 30;
+const NOTIF_DAYS_OVERDUE = 7;
+
+function todayYmd() {
+  const d = new Date();
+  return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+}
+
+// Returns days-until (negative = already passed, within NOTIF_DAYS_OVERDUE) for
+// the next occurrence of a stored "YYYY-MM-DD" date, or null if outside the
+// notification window. recurring=true treats it as an annual month/day event
+// (like a birthday); recurring=false treats it as a single fixed date.
+function daysUntilOccurrence(isoDate, recurring) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
+  if (!m) return null;
+  const today = todayYmd();
+  const todayMs = Date.UTC(today.y, today.m - 1, today.d);
+  const month = Number(m[2]), day = Number(m[3]);
+
+  let occYear = recurring ? today.y : Number(m[1]);
+  let occMs = Date.UTC(occYear, month - 1, day);
+  let daysUntil = Math.round((occMs - todayMs) / 86400000);
+
+  if (recurring && daysUntil < -NOTIF_DAYS_OVERDUE) {
+    occMs = Date.UTC(occYear + 1, month - 1, day);
+    daysUntil = Math.round((occMs - todayMs) / 86400000);
+  }
+
+  if (daysUntil < -NOTIF_DAYS_OVERDUE || daysUntil > NOTIF_DAYS_AHEAD) return null;
+  return daysUntil;
+}
+
+function computeNotifications() {
+  const items = [];
+  employees.forEach(emp => {
+    if (emp.status === 'terminated') return;
+    const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+
+    const bday = daysUntilOccurrence(emp.birthDate, true);
+    if (bday !== null) items.push({ employeeId: emp.id, title: `יום הולדת - ${name}`, daysUntil: bday });
+
+    const contractEnd = daysUntilOccurrence(emp.contractEndDate, false);
+    if (contractEnd !== null) items.push({ employeeId: emp.id, title: `סיום הסכם עבודה - ${name}`, daysUntil: contractEnd });
+
+    (emp.customReminders || []).forEach(r => {
+      const d = daysUntilOccurrence(r.date, !!r.recurring);
+      if (d !== null) items.push({ employeeId: emp.id, title: `${r.title} - ${name}`, daysUntil: d });
+    });
+  });
+  items.sort((a, b) => a.daysUntil - b.daysUntil);
+  return items;
+}
+
+function renderNotifications() {
+  const items = computeNotifications();
+  const countEl = document.getElementById('notifCount');
+  countEl.textContent = String(items.length);
+  countEl.style.display = items.length ? 'inline-block' : 'none';
+
+  const listEl = document.getElementById('notifList');
+  listEl.innerHTML = items.map(item => {
+    const overdue = item.daysUntil < 0;
+    const dateLabel = overdue ? `עבר לפני ${-item.daysUntil} ימים` : (item.daysUntil === 0 ? 'היום' : `בעוד ${item.daysUntil} ימים`);
+    return `<li class="notif-item${overdue ? ' overdue' : ''}" data-notif-emp="${item.employeeId}">
+      <span>${escapeHtml(item.title)}<br><span class="notif-date">${dateLabel}</span></span>
+    </li>`;
+  }).join('') || '<li class="muted">אין התראות קרובות</li>';
+
+  listEl.querySelectorAll('[data-notif-emp]').forEach(li => {
+    li.addEventListener('click', () => {
+      document.getElementById('notifPanel').style.display = 'none';
+      document.querySelector('.tab-btn[data-view="employees"]').click();
+      openEmployeeModal(li.dataset.notifEmp);
+    });
+  });
+}
+
+function wireNotifications() {
+  const btn = document.getElementById('notifBellBtn');
+  const panel = document.getElementById('notifPanel');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+  document.addEventListener('click', (e) => {
+    if (panel.style.display !== 'none' && !panel.contains(e.target) && e.target !== btn) {
+      panel.style.display = 'none';
+    }
+  });
 }
 
 function renderEmployeesTable() {
@@ -428,6 +523,7 @@ function wireEmployeeModal() {
   document.getElementById('addTrainingBtn').addEventListener('click', addTrainingItem);
   document.getElementById('addNoteBtn').addEventListener('click', addNoteItem);
   document.getElementById('uploadDocumentBtn').addEventListener('click', uploadDocument);
+  document.getElementById('addReminderBtn').addEventListener('click', addReminder);
 }
 
 function fileToDataUrl(file) {
@@ -468,10 +564,12 @@ async function openEmployeeModal(employeeId) {
   document.getElementById('f_status').value = data.status || 'active';
   document.getElementById('f_startDate').value = data.startDate || '';
   document.getElementById('f_endDate').value = data.endDate || '';
+  document.getElementById('f_contractEndDate').value = data.contractEndDate || '';
   document.getElementById('photoPreview').src = data.photoDataUrl || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'90\' height=\'90\'%3E%3Crect width=\'90\' height=\'90\' fill=\'%23e6e9ee\'/%3E%3C/svg%3E';
 
   renderCustomFieldsInModal(data.customFields);
   renderPortalStatus(employeeId, data);
+  renderRemindersList(data.customReminders || []);
 
   currentEmployeeData = data;
   document.getElementById('signRecipientEmail').value = data.email || '';
@@ -514,6 +612,7 @@ async function saveEmployee() {
     status: document.getElementById('f_status').value,
     startDate: document.getElementById('f_startDate').value,
     endDate: document.getElementById('f_endDate').value,
+    contractEndDate: document.getElementById('f_contractEndDate').value,
     customFields: collectCustomFieldValues(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -601,6 +700,44 @@ async function addNoteItem() {
   });
   document.getElementById('noteText').value = '';
   await loadSubItems(editingEmployeeId, 'notes', 'notesList', renderNoteLi);
+}
+
+/* ---- custom reminders (raises/bonuses/etc, feeds the notifications bell) ---- */
+
+function renderRemindersList(reminders) {
+  const ul = document.getElementById('remindersList');
+  if (!editingEmployeeId) { ul.innerHTML = '<li class="muted">יש לשמור את העובד תחילה</li>'; return; }
+  ul.innerHTML = reminders.map(r => `
+    <li>
+      <span>${escapeHtml(r.title)} <span class="muted">· ${r.date}${r.recurring ? ' · חוזר מדי שנה' : ''}</span></span>
+      <button class="btn small danger" data-del-reminder="${r.id}">מחיקה</button>
+    </li>
+  `).join('') || '<li class="muted">אין תזכורות</li>';
+
+  ul.querySelectorAll('[data-del-reminder]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const remaining = (currentEmployeeData.customReminders || []).filter(r => r.id !== btn.dataset.delReminder);
+      await db.collection('employees').doc(editingEmployeeId).update({ customReminders: remaining });
+      currentEmployeeData.customReminders = remaining;
+      renderRemindersList(remaining);
+    });
+  });
+}
+
+async function addReminder() {
+  if (!editingEmployeeId) return;
+  const title = document.getElementById('rm_title').value.trim();
+  const date = document.getElementById('rm_date').value;
+  const recurring = document.getElementById('rm_recurring').checked;
+  if (!title || !date) return;
+
+  const reminders = [...(currentEmployeeData.customReminders || []), { id: newId(), title, date, recurring }];
+  await db.collection('employees').doc(editingEmployeeId).update({ customReminders: reminders });
+  currentEmployeeData.customReminders = reminders;
+  document.getElementById('rm_title').value = '';
+  document.getElementById('rm_date').value = '';
+  document.getElementById('rm_recurring').checked = false;
+  renderRemindersList(reminders);
 }
 
 /* ---- documents ---- */

@@ -165,3 +165,18 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 }
 
 .empty-state { text-align: center; color: var(--muted); padding: 30px; }
+
+.notif-count {
+  display: inline-block; background: var(--danger); color: #fff; border-radius: 999px;
+  font-size: 11px; padding: 1px 6px; margin-inline-start: 2px; vertical-align: top;
+}
+.notif-panel {
+  position: absolute; top: 100%; right: 0; margin-top: 8px; width: 340px; max-height: 420px;
+  overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 14px; z-index: 60;
+}
+.notif-panel h3 { margin: 0 0 8px; font-size: 14px; }
+.notif-item { cursor: pointer; }
+.notif-item:hover { background: var(--bg); }
+.notif-item .notif-date { font-size: 12px; color: var(--muted); }
+.notif-item.overdue .notif-date { color: var(--danger); }
