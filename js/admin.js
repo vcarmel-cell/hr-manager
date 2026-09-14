@@ -6,6 +6,7 @@ let editingEmployeeId = null;
 let photoDataUrl = null;
 let currentEmployeeData = {};
 let signTemplates = [];
+let notifSettings = { birthdayDaysAhead: 14, contractEndDaysAhead: 60, customReminderDaysAhead: 30, overdueDays: 7 };
 
 const MAX_PHOTO_BYTES = 250000; // raw file size cap before base64 encoding
 const DEFAULT_AVATAR_32 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' fill='%23e6e9ee'/%3E%3C/svg%3E";
@@ -26,6 +27,7 @@ async function init() {
     document.getElementById('usersTabBtn').style.display = 'none';
   } else {
     document.getElementById('templatesLinkBtn').style.display = 'block';
+    document.getElementById('notifSettingsTabBtn').style.display = 'block';
   }
   document.getElementById('templatesLinkBtn').addEventListener('click', () => location.href = 'templates.html');
 
@@ -36,9 +38,11 @@ async function init() {
   wireUsersView();
   wireSigningView();
   wireNotifications();
+  wireNotifSettingsView();
 
   await loadDepartments();
   await loadFieldDefs();
+  await loadNotifSettings();
   if (currentRole === 'superadmin') await loadUsers();
   await loadEmployees();
   try { await loadTemplatesForSelect(); } catch (e) { console.error('loadTemplatesForSelect failed', e); }
@@ -321,21 +325,51 @@ async function loadEmployees() {
 
 /* ---- notifications bell: birthdays, contract-end dates, custom reminders ---- */
 
-const NOTIF_DAYS_AHEAD = 30;
-const NOTIF_DAYS_OVERDUE = 7;
+async function loadNotifSettings() {
+  const doc = await db.collection('settings').doc('notifications').get();
+  if (doc.exists) notifSettings = { ...notifSettings, ...doc.data() };
+  if (document.getElementById('ns_birthday')) {
+    document.getElementById('ns_birthday').value = notifSettings.birthdayDaysAhead;
+    document.getElementById('ns_contractEnd').value = notifSettings.contractEndDaysAhead;
+    document.getElementById('ns_custom').value = notifSettings.customReminderDaysAhead;
+    document.getElementById('ns_overdue').value = notifSettings.overdueDays;
+  }
+}
+
+function wireNotifSettingsView() {
+  document.getElementById('saveNotifSettingsBtn').addEventListener('click', async () => {
+    const hint = document.getElementById('notifSettingsHint');
+    notifSettings = {
+      birthdayDaysAhead: Math.max(0, Number(document.getElementById('ns_birthday').value) || 0),
+      contractEndDaysAhead: Math.max(0, Number(document.getElementById('ns_contractEnd').value) || 0),
+      customReminderDaysAhead: Math.max(0, Number(document.getElementById('ns_custom').value) || 0),
+      overdueDays: Math.max(0, Number(document.getElementById('ns_overdue').value) || 0)
+    };
+    try {
+      await db.collection('settings').doc('notifications').set({
+        ...notifSettings, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: currentUserLabel()
+      });
+      hint.textContent = 'נשמר בהצלחה.';
+      renderNotifications();
+    } catch (e) {
+      hint.textContent = 'שגיאה בשמירה: ' + e.message;
+    }
+  });
+}
 
 function todayYmd() {
   const d = new Date();
   return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
 }
 
-// Returns days-until (negative = already passed, within NOTIF_DAYS_OVERDUE) for
-// the next occurrence of a stored "YYYY-MM-DD" date, or null if outside the
-// notification window. recurring=true treats it as an annual month/day event
-// (like a birthday); recurring=false treats it as a single fixed date.
-function daysUntilOccurrence(isoDate, recurring) {
+// Returns days-until (negative = already passed, within notifSettings.overdueDays)
+// for the next occurrence of a stored "YYYY-MM-DD" date, or null if outside the
+// [ -overdueDays, +daysAhead ] window. recurring=true treats it as an annual
+// month/day event (like a birthday); recurring=false treats it as a fixed date.
+function daysUntilOccurrence(isoDate, recurring, daysAhead) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
   if (!m) return null;
+  const overdueDays = notifSettings.overdueDays;
   const today = todayYmd();
   const todayMs = Date.UTC(today.y, today.m - 1, today.d);
   const month = Number(m[2]), day = Number(m[3]);
@@ -344,12 +378,12 @@ function daysUntilOccurrence(isoDate, recurring) {
   let occMs = Date.UTC(occYear, month - 1, day);
   let daysUntil = Math.round((occMs - todayMs) / 86400000);
 
-  if (recurring && daysUntil < -NOTIF_DAYS_OVERDUE) {
+  if (recurring && daysUntil < -overdueDays) {
     occMs = Date.UTC(occYear + 1, month - 1, day);
     daysUntil = Math.round((occMs - todayMs) / 86400000);
   }
 
-  if (daysUntil < -NOTIF_DAYS_OVERDUE || daysUntil > NOTIF_DAYS_AHEAD) return null;
+  if (daysUntil < -overdueDays || daysUntil > daysAhead) return null;
   return daysUntil;
 }
 
@@ -359,14 +393,14 @@ function computeNotifications() {
     if (emp.status === 'terminated') return;
     const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
 
-    const bday = daysUntilOccurrence(emp.birthDate, true);
+    const bday = daysUntilOccurrence(emp.birthDate, true, notifSettings.birthdayDaysAhead);
     if (bday !== null) items.push({ employeeId: emp.id, title: `יום הולדת - ${name}`, daysUntil: bday });
 
-    const contractEnd = daysUntilOccurrence(emp.contractEndDate, false);
+    const contractEnd = daysUntilOccurrence(emp.contractEndDate, false, notifSettings.contractEndDaysAhead);
     if (contractEnd !== null) items.push({ employeeId: emp.id, title: `סיום הסכם עבודה - ${name}`, daysUntil: contractEnd });
 
     (emp.customReminders || []).forEach(r => {
-      const d = daysUntilOccurrence(r.date, !!r.recurring);
+      const d = daysUntilOccurrence(r.date, !!r.recurring, notifSettings.customReminderDaysAhead);
       if (d !== null) items.push({ employeeId: emp.id, title: `${r.title} - ${name}`, daysUntil: d });
     });
   });

@@ -27,6 +27,7 @@
     <button class="tab-btn" data-view="departments">מחלקות / סניפים</button>
     <button class="tab-btn" data-view="fields">שדות מותאמים אישית</button>
     <button class="tab-btn" data-view="users" id="usersTabBtn">משתמשי מערכת</button>
+    <button class="tab-btn" data-view="notifSettings" id="notifSettingsTabBtn" style="display:none">ניהול זמן להתראות</button>
     <button class="tab-btn" id="templatesLinkBtn" style="display:none">תבניות לחתימה</button>
   </nav>
 
@@ -102,6 +103,24 @@
         </div>
         <p class="hint">למנהל-על יש גישה לכל המחלקות. למנהל מחלקה יש לבחור מחלקות לאחר ההוספה. המשתמש יקבל אימייל לקביעת סיסמה.</p>
         <ul class="list-mini" id="userList"></ul>
+      </div>
+    </section>
+
+    <!-- Notification settings view -->
+    <section id="view-notifSettings" style="display:none">
+      <div class="card">
+        <h2>כמה זמן מראש להתריע</h2>
+        <p class="hint">בפעמון ההתראות למעלה יופיעו אירועים קרובים לפי מספר הימים שנקבע כאן לכל סוג, ועד כמה ימים אחרי שעבר התאריך.</p>
+        <div class="row">
+          <div class="field"><label>ימי הולדת - ימים מראש</label><input type="number" id="ns_birthday" min="0"></div>
+          <div class="field"><label>סיום הסכם עבודה - ימים מראש</label><input type="number" id="ns_contractEnd" min="0"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>תזכורות נוספות (מענקים/העלאות/מותאם) - ימים מראש</label><input type="number" id="ns_custom" min="0"></div>
+          <div class="field"><label>הצגה גם עד כמה ימים אחרי שהתאריך עבר</label><input type="number" id="ns_overdue" min="0"></div>
+        </div>
+        <button class="btn primary" id="saveNotifSettingsBtn">שמירה</button>
+        <p class="hint" id="notifSettingsHint"></p>
       </div>
     </section>
   </main>
