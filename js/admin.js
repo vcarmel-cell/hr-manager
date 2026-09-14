@@ -455,7 +455,7 @@ function renderEmployeesTable() {
     if (deptFilter && e.departmentId !== deptFilter) return false;
     if (statusFilter && e.status !== statusFilter) return false;
     if (search) {
-      const hay = `${e.firstName || ''} ${e.lastName || ''} ${e.idNumber || ''}`.toLowerCase();
+      const hay = `${e.firstName || ''} ${e.lastName || ''} ${e.idNumber || ''} ${e.employeeNumber || ''}`.toLowerCase();
       if (!hay.includes(search)) return false;
     }
     return true;
@@ -465,6 +465,7 @@ function renderEmployeesTable() {
   tbody.innerHTML = filtered.map(e => `
     <tr>
       <td><img class="photo-preview" style="width:32px;height:32px" src="${e.photoDataUrl || DEFAULT_AVATAR_32}"></td>
+      <td>${escapeHtml(e.employeeNumber || '')}</td>
       <td>${escapeHtml((e.firstName || '') + ' ' + (e.lastName || ''))}</td>
       <td>${escapeHtml(e.idNumber || '')}</td>
       <td>${escapeHtml(e.position || '')}</td>
@@ -592,6 +593,7 @@ async function openEmployeeModal(employeeId) {
   document.getElementById('f_phone').value = data.phone || '';
   document.getElementById('f_email').value = data.email || '';
   document.getElementById('f_address').value = data.address || '';
+  document.getElementById('f_employeeNumber').value = data.employeeNumber || '';
   document.getElementById('f_position').value = data.position || '';
   document.getElementById('f_departmentId').value = data.departmentId || (departments[0] && departments[0].id) || '';
   document.getElementById('f_managerName').value = data.managerName || '';
@@ -640,6 +642,7 @@ async function saveEmployee() {
     phone: document.getElementById('f_phone').value.trim(),
     email: document.getElementById('f_email').value.trim(),
     address: document.getElementById('f_address').value.trim(),
+    employeeNumber: document.getElementById('f_employeeNumber').value.trim(),
     position: document.getElementById('f_position').value.trim(),
     departmentId,
     managerName: document.getElementById('f_managerName').value.trim(),
@@ -854,6 +857,7 @@ function resolveAutoFillValue(key, employeeData) {
     case 'firstName': return employeeData.firstName || '';
     case 'lastName': return employeeData.lastName || '';
     case 'idNumber': return employeeData.idNumber || '';
+    case 'employeeNumber': return employeeData.employeeNumber || '';
     case 'position': return employeeData.position || '';
     case 'departmentName': return dept ? dept.name : '';
     case 'startDate': return employeeData.startDate ? isoToDdMmYyyy(employeeData.startDate) : '';

@@ -27,6 +27,7 @@ async function init() {
   ]);
 
   renderKv('employmentList', [
+    ['מספר עובד', data.employeeNumber],
     ['תפקיד', data.position],
     ['מחלקה / סניף', deptName],
     ['מנהל ישיר', data.managerName],

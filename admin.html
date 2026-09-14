@@ -36,7 +36,7 @@
     <section id="view-employees">
       <div class="card">
         <div class="toolbar">
-          <input type="text" id="empSearch" placeholder="חיפוש לפי שם / ת.ז...">
+          <input type="text" id="empSearch" placeholder="חיפוש לפי שם / ת.ז. / מספר עובד...">
           <select id="empDeptFilter"><option value="">כל המחלקות</option></select>
           <select id="empStatusFilter">
             <option value="">כל הסטטוסים</option>
@@ -50,7 +50,7 @@
         <table>
           <thead>
             <tr>
-              <th></th><th>שם מלא</th><th>ת.ז.</th><th>תפקיד</th><th>מחלקה</th><th>סטטוס</th><th></th>
+              <th></th><th>מס' עובד</th><th>שם מלא</th><th>ת.ז.</th><th>תפקיד</th><th>מחלקה</th><th>סטטוס</th><th></th>
             </tr>
           </thead>
           <tbody id="employeesTbody"></tbody>
@@ -169,7 +169,10 @@
 
     <div class="modal-pane" data-pane="employment">
       <div class="row">
+        <div class="field"><label>מספר עובד</label><input id="f_employeeNumber"></div>
         <div class="field"><label>תפקיד</label><input id="f_position"></div>
+      </div>
+      <div class="row">
         <div class="field"><label>מחלקה / סניף</label><select id="f_departmentId"></select></div>
       </div>
       <div class="row">
