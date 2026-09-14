@@ -1,11 +1,14 @@
 :root {
-  --bg: #f4f6f8;
+  --bg: #eef2fa;
   --card: #ffffff;
   --text: #1c2530;
   --muted: #6b7785;
   --border: #dde3ea;
   --primary: #2f6fed;
   --primary-dark: #1f4fbf;
+  --accent: #12b3a8;
+  --accent-warm: #f0973d;
+  --heading: #16255c;
   --danger: #d3402f;
   --success: #1f9d55;
   --radius: 10px;
@@ -26,11 +29,12 @@ header.topbar {
   align-items: center;
   justify-content: space-between;
   background: var(--card);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 3px solid;
+  border-image: linear-gradient(90deg, var(--primary), var(--accent)) 1;
   padding: 12px 20px;
 }
 
-header.topbar h1 { font-size: 18px; margin: 0; }
+header.topbar h1 { font-size: 18px; margin: 0; font-weight: 800; color: var(--heading); }
 header.topbar .topbar-logo { height: 36px; max-width: 200px; object-fit: contain; display: block; }
 header.topbar .who { color: var(--muted); font-size: 13px; }
 
@@ -55,11 +59,17 @@ nav.tabs button {
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 14px;
-  color: var(--text);
+  font-weight: 600;
+  color: var(--heading);
+  transition: background-color .15s, color .15s;
 }
 
-nav.tabs button:hover { background: var(--bg); }
-nav.tabs button.active { background: var(--primary); color: #fff; }
+nav.tabs button:hover { background: var(--bg); color: var(--primary-dark); }
+nav.tabs button.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(47,111,237,.35);
+}
 
 main { flex: 1; padding: 20px; overflow-x: auto; }
 
@@ -71,11 +81,19 @@ main { flex: 1; padding: 20px; overflow-x: auto; }
   margin-bottom: 16px;
 }
 
-.card h2 { margin-top: 0; font-size: 16px; }
+.card h2, .modal h2 {
+  margin-top: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--heading);
+  letter-spacing: -.2px;
+  padding-inline-start: 12px;
+  border-inline-start: 4px solid var(--accent);
+}
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: right; }
-th { color: var(--muted); font-weight: 600; }
+th { color: var(--heading); font-weight: 700; border-bottom: 2px solid var(--accent); }
 tr:hover td { background: var(--bg); }
 
 .btn {
@@ -89,8 +107,11 @@ tr:hover td { background: var(--bg); }
   color: var(--text);
 }
 .btn:hover { background: var(--bg); }
-.btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-.btn.primary:hover { background: var(--primary-dark); }
+.btn.primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff; border-color: var(--primary); font-weight: 600;
+}
+.btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { background: #fdeceb; color: var(--danger); border-color: #f4c6c1; }
 .btn.small { padding: 4px 10px; font-size: 12px; }
 
@@ -115,6 +136,7 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 700;
 }
 .badge.active { background: #e6f7ec; color: var(--success); }
 .badge.terminated { background: #fdeceb; color: var(--danger); }
@@ -128,13 +150,14 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
   background: var(--card); border-radius: var(--radius);
   width: 100%; max-width: 720px; padding: 20px;
 }
-.modal h2 { margin-top: 0; }
 .modal-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; flex-wrap: wrap; }
 .modal-tabs button {
   border: none; background: none; padding: 8px 10px; cursor: pointer;
-  font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent;
+  font-size: 13px; font-weight: 600; color: var(--text); border-bottom: 3px solid transparent;
+  transition: color .15s, border-color .15s;
 }
-.modal-tabs button.active { color: var(--primary); border-color: var(--primary); }
+.modal-tabs button:hover { color: var(--primary-dark); }
+.modal-tabs button.active { color: var(--primary); border-color: var(--accent); }
 .modal-pane { display: none; }
 .modal-pane.active { display: block; }
 .modal-actions { display: flex; justify-content: flex-start; gap: 8px; margin-top: 16px; }
@@ -143,7 +166,7 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
 }
 .login-card { width: 100%; max-width: 360px; }
-.login-card h1 { text-align: center; font-size: 20px; }
+.login-card h1 { text-align: center; font-size: 22px; font-weight: 800; color: var(--heading); }
 .error-msg { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 16px; }
 .muted { color: var(--muted); font-size: 13px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: -6px; margin-bottom: 12px; }
@@ -175,7 +198,7 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
   overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 14px; z-index: 60;
 }
-.notif-panel h3 { margin: 0 0 8px; font-size: 14px; }
+.notif-panel h3 { margin: 0 0 8px; font-size: 14px; font-weight: 800; color: var(--heading); }
 .notif-item { cursor: pointer; }
 .notif-item:hover { background: var(--bg); }
 .notif-item .notif-date { font-size: 12px; color: var(--muted); }
