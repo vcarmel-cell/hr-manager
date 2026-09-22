@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="login-wrap">
-  <div class="card login-card">
+  <div class="card login-card" id="loginCard">
     <h1>ניהול כוח אדם</h1>
     <p class="muted" style="text-align:center">כניסה למערכת</p>
     <div class="field">
@@ -26,6 +26,19 @@
       <a href="#" id="forgotPasswordLink" style="font-size:13px">שכחתי סיסמה</a>
     </p>
   </div>
+
+  <div class="card login-card" id="mfaChallengeCard" style="display:none">
+    <h1>אימות דו-שלבי</h1>
+    <p class="muted" style="text-align:center">הוזן קוד שנשלח ב-SMS למספר המשויך לחשבון</p>
+    <div class="field">
+      <label>קוד אימות</label>
+      <input id="mfaCodeInput" inputmode="numeric" maxlength="6">
+    </div>
+    <button class="btn primary" id="mfaVerifyBtn" style="width:100%">אימות</button>
+    <div class="error-msg" id="mfaErrorMsg"></div>
+  </div>
+
+  <div id="recaptcha-container-login"></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
@@ -63,21 +76,61 @@ async function doLogin() {
   if (!email || !password) { errorMsg.textContent = 'נא למלא אימייל וסיסמה'; return; }
   try {
     const cred = await auth.signInWithEmailAndPassword(email, password);
-    const info = await resolveCurrentUserRole(cred.user);
-    if (!info) {
-      await auth.signOut();
-      errorMsg.textContent = 'למשתמש זה אין הרשאת גישה למערכת.';
+    await proceedAfterAuth(cred.user);
+  } catch (e) {
+    if (e.code === 'auth/multi-factor-auth-required') {
+      await startMfaChallenge(e);
       return;
     }
-    if (info.role === 'employee') {
-      window.location.href = 'portal.html';
-    } else {
-      window.location.href = 'admin.html';
-    }
-  } catch (e) {
     errorMsg.textContent = 'אימייל או סיסמה שגויים.';
   }
 }
+
+async function proceedAfterAuth(user) {
+  const info = await resolveCurrentUserRole(user);
+  if (!info) {
+    await auth.signOut();
+    errorMsg.textContent = 'למשתמש זה אין הרשאת גישה למערכת.';
+    return;
+  }
+  window.location.href = info.role === 'employee' ? 'portal.html' : 'admin.html';
+}
+
+let mfaResolver = null;
+let mfaChallengeVerificationId = null;
+
+async function startMfaChallenge(error) {
+  mfaResolver = error.resolver;
+  document.getElementById('loginCard').style.display = 'none';
+  document.getElementById('mfaChallengeCard').style.display = 'block';
+  const mfaErrorMsg = document.getElementById('mfaErrorMsg');
+  try {
+    const recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container-login', { size: 'invisible' }, auth);
+    const phoneAuthProvider = new firebase.auth.PhoneAuthProvider(auth);
+    mfaChallengeVerificationId = await phoneAuthProvider.verifyPhoneNumber(
+      { multiFactorHint: mfaResolver.hints[0], session: mfaResolver.session }, recaptchaVerifier
+    );
+  } catch (e2) {
+    mfaErrorMsg.textContent = 'שגיאה בשליחת קוד האימות: ' + e2.message;
+  }
+}
+
+document.getElementById('mfaVerifyBtn').addEventListener('click', async () => {
+  const mfaErrorMsg = document.getElementById('mfaErrorMsg');
+  const code = document.getElementById('mfaCodeInput').value.trim();
+  if (!code || !mfaChallengeVerificationId) return;
+  try {
+    const cred = firebase.auth.PhoneAuthProvider.credential(mfaChallengeVerificationId, code);
+    const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
+    const userCredential = await mfaResolver.resolveSignIn(assertion);
+    await proceedAfterAuth(userCredential.user);
+  } catch (e) {
+    mfaErrorMsg.textContent = 'קוד שגוי.';
+  }
+});
+document.getElementById('mfaCodeInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('mfaVerifyBtn').click();
+});
 
 // If already signed in, skip straight past the login form.
 auth.onAuthStateChanged(async (user) => {

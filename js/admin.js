@@ -39,6 +39,7 @@ async function init() {
   wireSigningView();
   wireNotifications();
   wireNotifSettingsView();
+  wireMfa();
 
   await loadDepartments();
   await loadFieldDefs();
@@ -444,6 +445,91 @@ function wireNotifications() {
       panel.style.display = 'none';
     }
   });
+}
+
+/* ---- MFA (two-factor / SMS) enrollment ---- */
+
+let mfaVerificationId = null;
+let mfaRecaptchaVerifier = null;
+
+function wireMfa() {
+  document.getElementById('mfaOpenBtn').addEventListener('click', openMfaModal);
+  document.getElementById('closeMfaModalBtn').addEventListener('click', closeMfaModal);
+  document.getElementById('mfaSendCodeBtn').addEventListener('click', sendMfaCode);
+  document.getElementById('mfaVerifyCodeBtn').addEventListener('click', verifyMfaCode);
+  document.getElementById('mfaUnenrollBtn').addEventListener('click', unenrollMfa);
+}
+
+function openMfaModal() {
+  document.getElementById('mfaModalBackdrop').style.display = 'flex';
+  document.getElementById('mfaHint').textContent = '';
+  document.getElementById('mfa_phone').value = '';
+  document.getElementById('mfa_code').value = '';
+  document.getElementById('mfaEnrollStep2').style.display = 'none';
+  mfaVerificationId = null;
+
+  const enrolledFactors = currentUser.multiFactor ? currentUser.multiFactor.enrolledFactors : [];
+  if (enrolledFactors.length) {
+    document.getElementById('mfaEnrolledBlock').style.display = 'block';
+    document.getElementById('mfaEnrollStep1').style.display = 'none';
+    document.getElementById('mfaEnrolledPhone').textContent = enrolledFactors[0].phoneNumber || '';
+  } else {
+    document.getElementById('mfaEnrolledBlock').style.display = 'none';
+    document.getElementById('mfaEnrollStep1').style.display = 'block';
+  }
+}
+
+function closeMfaModal() {
+  document.getElementById('mfaModalBackdrop').style.display = 'none';
+}
+
+function getMfaRecaptcha() {
+  if (!mfaRecaptchaVerifier) {
+    mfaRecaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container-enroll', { size: 'invisible' }, auth);
+  }
+  return mfaRecaptchaVerifier;
+}
+
+async function sendMfaCode() {
+  const hint = document.getElementById('mfaHint');
+  const phone = document.getElementById('mfa_phone').value.trim();
+  if (!/^\+\d{8,15}$/.test(phone)) { hint.textContent = 'יש להזין מספר טלפון עם קידומת מדינה, לדוגמא +972501234567.'; return; }
+
+  hint.textContent = 'שולח...';
+  try {
+    const session = await currentUser.multiFactor.getSession();
+    const phoneAuthProvider = new firebase.auth.PhoneAuthProvider(auth);
+    mfaVerificationId = await phoneAuthProvider.verifyPhoneNumber({ phoneNumber: phone, session }, getMfaRecaptcha());
+    document.getElementById('mfaEnrollStep2').style.display = 'block';
+    hint.textContent = 'קוד נשלח. נא להזין אותו למטה.';
+  } catch (e) {
+    hint.textContent = 'שגיאה בשליחת הקוד: ' + e.message;
+  }
+}
+
+async function verifyMfaCode() {
+  const hint = document.getElementById('mfaHint');
+  const code = document.getElementById('mfa_code').value.trim();
+  if (!mfaVerificationId || !code) return;
+
+  try {
+    const cred = firebase.auth.PhoneAuthProvider.credential(mfaVerificationId, code);
+    const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
+    await currentUser.multiFactor.enroll(assertion, 'טלפון ראשי');
+    hint.style.color = 'var(--success)';
+    hint.textContent = 'אימות דו-שלבי הופעל בהצלחה.';
+    openMfaModal();
+  } catch (e) {
+    hint.style.color = '';
+    hint.textContent = 'קוד שגוי או שפג תוקפו: ' + e.message;
+  }
+}
+
+async function unenrollMfa() {
+  if (!confirm('לבטל אימות דו-שלבי? מעתה תוכל/י להתחבר עם סיסמה בלבד.')) return;
+  const enrolledFactors = currentUser.multiFactor.enrolledFactors;
+  await currentUser.multiFactor.unenroll(enrolledFactors[0]);
+  openMfaModal();
 }
 
 function renderEmployeesTable() {

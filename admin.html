@@ -17,6 +17,7 @@
       <ul class="list-mini" id="notifList"></ul>
     </div>
     <span class="who" id="whoAmI"></span>
+    <button class="btn small" id="mfaOpenBtn">אימות דו-שלבי</button>
     <button class="btn small" id="logoutBtn">התנתקות</button>
   </div>
 </header>
@@ -124,6 +125,31 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- MFA (two-factor) enrollment modal -->
+<div class="modal-backdrop" id="mfaModalBackdrop" style="display:none">
+  <div class="modal" style="max-width:400px">
+    <h2>אימות דו-שלבי (SMS)</h2>
+    <div id="mfaEnrolledBlock" style="display:none">
+      <p>אימות דו-שלבי <strong>פעיל</strong> עבור מספר <span id="mfaEnrolledPhone"></span>.</p>
+      <button class="btn danger" id="mfaUnenrollBtn">ביטול אימות דו-שלבי</button>
+    </div>
+    <div id="mfaEnrollStep1">
+      <p class="hint">בכל כניסה למערכת תתבקש/י להזין גם קוד שנשלח ב-SMS. יש חיוב קטן לכל שליחת קוד.</p>
+      <div class="field"><label>מספר טלפון (עם קידומת מדינה, לדוגמא +972501234567)</label><input id="mfa_phone" placeholder="+972501234567"></div>
+      <button class="btn primary" id="mfaSendCodeBtn">שליחת קוד אימות</button>
+    </div>
+    <div id="mfaEnrollStep2" style="display:none">
+      <div class="field"><label>קוד אימות שנשלח ב-SMS</label><input id="mfa_code" inputmode="numeric" maxlength="6"></div>
+      <button class="btn primary" id="mfaVerifyCodeBtn">אימות והפעלה</button>
+    </div>
+    <div id="recaptcha-container-enroll"></div>
+    <p class="error-msg" id="mfaHint"></p>
+    <div class="modal-actions">
+      <button class="btn" id="closeMfaModalBtn">סגירה</button>
+    </div>
+  </div>
 </div>
 
 <!-- Employee modal -->
