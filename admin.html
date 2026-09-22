@@ -138,6 +138,11 @@
       <p>אימות דו-שלבי <strong>פעיל</strong> עבור מספר <span id="mfaEnrolledPhone"></span>.</p>
       <button class="btn danger" id="mfaUnenrollBtn">ביטול אימות דו-שלבי</button>
     </div>
+    <div id="mfaNeedsEmailVerifyBlock" style="display:none">
+      <p class="hint">Firebase דורש שכתובת האימייל של החשבון תהיה מאומתת לפני הפעלת אימות דו-שלבי.</p>
+      <button class="btn primary" id="mfaSendVerifyEmailBtn">שליחת אימייל אימות</button>
+      <button class="btn" id="mfaRecheckVerifyBtn">בדקתי את האימייל - רענון סטטוס</button>
+    </div>
     <div id="mfaEnrollStep1">
       <p class="hint">בכל כניסה למערכת תתבקש/י להזין גם קוד שנשלח ב-SMS. יש חיוב קטן לכל שליחת קוד.</p>
       <div class="field"><label>מספר טלפון (עם קידומת מדינה, לדוגמא +972501234567)</label><input id="mfa_phone" placeholder="+972501234567"></div>

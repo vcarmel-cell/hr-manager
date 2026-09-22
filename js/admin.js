@@ -298,12 +298,16 @@ function wireUsersView() {
         name, email, role, active: true, departmentIds: [],
         createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
       });
+      // Sent up front (not just a password-reset email) so this user's email is
+      // already verified whenever they later want to enable MFA - Identity
+      // Platform refuses second-factor enrollment on an unverified email.
+      await cred.user.sendEmailVerification();
       await secAuth.sendPasswordResetEmail(email);
       await secAuth.signOut();
       document.getElementById('newUserName').value = '';
       document.getElementById('newUserEmail').value = '';
       await loadUsers();
-      alert('המשתמש נוצר, ונשלח אליו אימייל לקביעת סיסמה.');
+      alert('המשתמש נוצר, ונשלח אליו אימייל לקביעת סיסמה ואימייל לאימות הכתובת.');
     } catch (e) {
       alert('שגיאה ביצירת המשתמש: ' + e.message);
     }
@@ -458,6 +462,8 @@ function wireMfa() {
   document.getElementById('mfaSendCodeBtn').addEventListener('click', sendMfaCode);
   document.getElementById('mfaVerifyCodeBtn').addEventListener('click', verifyMfaCode);
   document.getElementById('mfaUnenrollBtn').addEventListener('click', unenrollMfa);
+  document.getElementById('mfaSendVerifyEmailBtn').addEventListener('click', sendMfaVerifyEmail);
+  document.getElementById('mfaRecheckVerifyBtn').addEventListener('click', recheckEmailVerified);
 }
 
 function openMfaModal() {
@@ -469,13 +475,42 @@ function openMfaModal() {
   mfaVerificationId = null;
 
   const enrolledFactors = currentUser.multiFactor ? currentUser.multiFactor.enrolledFactors : [];
+  document.getElementById('mfaEnrolledBlock').style.display = 'none';
+  document.getElementById('mfaNeedsEmailVerifyBlock').style.display = 'none';
+  document.getElementById('mfaEnrollStep1').style.display = 'none';
+
   if (enrolledFactors.length) {
     document.getElementById('mfaEnrolledBlock').style.display = 'block';
-    document.getElementById('mfaEnrollStep1').style.display = 'none';
     document.getElementById('mfaEnrolledPhone').textContent = enrolledFactors[0].phoneNumber || '';
+  } else if (!currentUser.emailVerified) {
+    // Identity Platform requires a verified email before enrolling a second
+    // factor - without this check the SDK fails with a confusingly unrelated
+    // "auth/invalid-api-key" instead of surfacing the real UNVERIFIED_EMAIL error.
+    document.getElementById('mfaNeedsEmailVerifyBlock').style.display = 'block';
   } else {
-    document.getElementById('mfaEnrolledBlock').style.display = 'none';
     document.getElementById('mfaEnrollStep1').style.display = 'block';
+  }
+}
+
+async function sendMfaVerifyEmail() {
+  const hint = document.getElementById('mfaHint');
+  try {
+    await currentUser.sendEmailVerification();
+    hint.style.color = 'var(--success)';
+    hint.textContent = 'נשלח אימייל אימות. יש ללחוץ על הקישור בו, ולאחר מכן על "בדקתי את האימייל".';
+  } catch (e) {
+    hint.style.color = '';
+    hint.textContent = 'שגיאה בשליחת אימייל האימות: ' + e.message;
+  }
+}
+
+async function recheckEmailVerified() {
+  const hint = document.getElementById('mfaHint');
+  await currentUser.reload();
+  if (currentUser.emailVerified) {
+    openMfaModal();
+  } else {
+    hint.textContent = 'האימייל עדיין לא מאומת. יש ללחוץ על הקישור שנשלח ולנסות שוב.';
   }
 }
 
