@@ -142,7 +142,7 @@ document.getElementById('mfaVerifyBtn').addEventListener('click', async () => {
 
   const fresh = await challengeRef.get();
   if (fresh.exists && fresh.data().verified) {
-    sessionStorage.setItem('mfaVerifiedUid', mfaChallengeUser.uid);
+    try { localStorage.setItem('mfaVerifiedAt_' + mfaChallengeUser.uid, String(Date.now())); } catch (e3) {}
     await proceedAfterAuth(mfaChallengeUser);
   } else {
     mfaErrorMsg.textContent = 'קוד שגוי.' + (fresh.exists && fresh.data().otpAttempts >= 5 ? ' יותר מדי ניסיונות - יש לרענן את הדף ולהתחבר מחדש.' : '');
@@ -156,15 +156,19 @@ document.getElementById('mfaCodeInput').addEventListener('keydown', e => {
 // email+password submission in this tab (doLogin), and an already-persisted
 // session from a previous visit (page load with a still-valid Firebase
 // session) both land here, since both are just auth-state changes to Firebase.
-// sessionStorage (per-tab, cleared when the tab/browser closes) tracks
-// whether *this* session already cleared the MFA challenge, so re-opening the
-// browser later re-prompts even though the underlying Firebase session is
-// still technically signed in.
+// localStorage (survives browser restarts, unlike sessionStorage) tracks when
+// this browser last cleared the MFA challenge for this specific uid - Firebase
+// itself would otherwise keep the session signed in indefinitely, so without
+// this the "second factor" would only ever be checked once, ever.
+const MFA_REVALIDATE_DAYS = 30;
 auth.onAuthStateChanged(async (user) => {
   if (!user) return;
   const userDoc = await db.collection('users').doc(user.uid).get();
   const mfaEnabled = userDoc.exists && userDoc.data().mfaEmailEnabled === true;
-  if (mfaEnabled && sessionStorage.getItem('mfaVerifiedUid') !== user.uid) {
+  let lastVerifiedAt = 0;
+  try { lastVerifiedAt = Number(localStorage.getItem('mfaVerifiedAt_' + user.uid) || 0); } catch (e) {}
+  const daysSinceVerified = (Date.now() - lastVerifiedAt) / (1000 * 60 * 60 * 24);
+  if (mfaEnabled && daysSinceVerified >= MFA_REVALIDATE_DAYS) {
     if (document.getElementById('mfaChallengeCard').style.display !== 'block') {
       await startMfaChallenge(user);
     }
