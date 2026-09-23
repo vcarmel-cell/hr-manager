@@ -1,11 +1,12 @@
-// Optional — same pattern as PDFSign. Until these are filled in with a real
-// EmailJS account's values, sendSigningEmail() silently no-ops and the admin
-// panel falls back to showing the link/code on-screen to copy and send
-// manually (WhatsApp, SMS, in person, etc). Nothing else depends on this.
+// Same EmailJS account used by Calendar/Calendar-Demo (shared public key),
+// but a dedicated service + template created for this app - reusing
+// template_g12apr8 (Calendar's appointment-notification template) would have
+// sent emails with empty/missing placeholders, since it expects client_name/
+// date/start_time/etc, not otp_code/link.
 const EMAILJS_CONFIG = {
-  publicKey: 'PASTE_EMAILJS_PUBLIC_KEY',
-  serviceId: 'PASTE_EMAILJS_SERVICE_ID',
-  templateId: 'PASTE_EMAILJS_TEMPLATE_ID'
+  publicKey: '6d_bWSpIY9nijK9fU',
+  serviceId: 'HRMFA_3jlz92j',
+  templateId: 'template_k1qjlxq'
 };
 
 function emailJsConfigured() {
