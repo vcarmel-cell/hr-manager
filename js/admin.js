@@ -28,6 +28,7 @@ async function init() {
   } else {
     document.getElementById('templatesLinkBtn').style.display = 'block';
     document.getElementById('notifSettingsTabBtn').style.display = 'block';
+    document.getElementById('bulkSendTabBtn').style.display = 'block';
   }
   document.getElementById('templatesLinkBtn').addEventListener('click', () => location.href = 'templates.html');
 
@@ -40,6 +41,7 @@ async function init() {
   wireNotifications();
   wireNotifSettingsView();
   wireMfa();
+  wireBulkSendView();
 
   await loadDepartments();
   await loadFieldDefs();
@@ -47,6 +49,7 @@ async function init() {
   if (currentRole === 'superadmin') await loadUsers();
   await loadEmployees();
   try { await loadTemplatesForSelect(); } catch (e) { console.error('loadTemplatesForSelect failed', e); }
+  if (currentRole === 'superadmin') renderBulkSendView();
 }
 
 function currentUserLabel() {
@@ -952,6 +955,87 @@ async function loadTemplatesForSelect() {
   document.getElementById('signTemplateSelect').innerHTML =
     '<option value="">-- בחירת תבנית --</option>' +
     signTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  document.getElementById('bulkTemplateSelect').innerHTML =
+    '<option value="">-- בחירת תבנית --</option>' +
+    // Bulk-send only makes sense for single-mode templates (each selected
+    // employee gets their own independent link) - matches PDFSign's own
+    // "bulk invite is single-mode only" gating.
+    signTemplates.filter(t => t.mode !== 'multiSign').map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+}
+
+/* ---- bulk send: one template -> many employees at once ---- */
+
+function wireBulkSendView() {
+  document.getElementById('bulkTemplateSelect').addEventListener('change', renderBulkSendView);
+  document.getElementById('bulkDeptFilter').addEventListener('change', renderBulkEmployeesList);
+  document.getElementById('bulkSelectAllBtn').addEventListener('click', () => {
+    document.querySelectorAll('#bulkEmployeesList input[type=checkbox]').forEach(cb => cb.checked = true);
+  });
+  document.getElementById('bulkSelectNoneBtn').addEventListener('click', () => {
+    document.querySelectorAll('#bulkEmployeesList input[type=checkbox]').forEach(cb => cb.checked = false);
+  });
+  document.getElementById('bulkSendBtn').addEventListener('click', bulkSend);
+}
+
+function renderBulkSendView() {
+  const sel = document.getElementById('bulkDeptFilter');
+  const visibleDepts = currentRole === 'superadmin' ? departments : departments.filter(d => myDeptIds.includes(d.id));
+  sel.innerHTML = '<option value="">כל המחלקות</option>' +
+    visibleDepts.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  renderBulkEmployeesList();
+}
+
+function renderBulkEmployeesList() {
+  const deptFilter = document.getElementById('bulkDeptFilter').value;
+  const list = employees.filter(e => e.status === 'active' && (!deptFilter || e.departmentId === deptFilter) && e.email);
+  const ul = document.getElementById('bulkEmployeesList');
+  ul.innerHTML = list.map(e => `
+    <li>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" data-emp-id="${e.id}" style="width:auto">
+        ${escapeHtml((e.firstName || '') + ' ' + (e.lastName || ''))}
+        <span class="muted">· ${escapeHtml(deptName(e.departmentId))} · ${escapeHtml(e.email)}</span>
+      </label>
+    </li>
+  `).join('') || '<li class="muted">אין עובדים פעילים עם כתובת אימייל התואמים לסינון</li>';
+}
+
+async function bulkSend() {
+  const hint = document.getElementById('bulkSendHint');
+  const resultsEl = document.getElementById('bulkSendResults');
+  const templateId = document.getElementById('bulkTemplateSelect').value;
+  if (!templateId) { hint.textContent = 'יש לבחור תבנית.'; return; }
+  const template = signTemplates.find(t => t.id === templateId);
+  const selectedIds = Array.from(document.querySelectorAll('#bulkEmployeesList input:checked')).map(cb => cb.dataset.empId);
+  if (!selectedIds.length) { hint.textContent = 'יש לבחור לפחות עובד אחד.'; return; }
+
+  const existingCount = await countTemplateSubmissions(templateId);
+  if (existingCount + selectedIds.length > MAX_SUBMISSIONS_PER_TEMPLATE) {
+    hint.textContent = `שליחה זו תחרוג ממכסת ${MAX_SUBMISSIONS_PER_TEMPLATE} ההגשות לתבנית (נוצלו כבר ${existingCount}).`;
+    return;
+  }
+
+  document.getElementById('bulkSendBtn').disabled = true;
+  const results = [];
+  for (const empId of selectedIds) {
+    const emp = employees.find(e => e.id === empId);
+    hint.textContent = `שולח... (${results.length + 1}/${selectedIds.length})`;
+    try {
+      const { emailed } = await createSingleSigningRequest(empId, emp, template, emp.email);
+      results.push({ emp, ok: true, emailed });
+    } catch (e) {
+      results.push({ emp, ok: false, error: e.message });
+    }
+    await new Promise(r => setTimeout(r, 300)); // light throttle, mirrors PDFSign's bulk-send pacing
+  }
+  document.getElementById('bulkSendBtn').disabled = false;
+  hint.textContent = '';
+
+  const sentOk = results.filter(r => r.ok).length;
+  resultsEl.innerHTML = `<p><strong>נשלחו ${sentOk} מתוך ${results.length}.</strong></p>` +
+    '<ul class="list-mini">' + results.filter(r => !r.ok || !r.emailed).map(r =>
+      `<li class="muted">${escapeHtml((r.emp.firstName || '') + ' ' + (r.emp.lastName || ''))}: ${r.ok ? 'נוצר, אך לא נשלח אימייל (EmailJS לא מוגדר)' : 'נכשל - ' + escapeHtml(r.error)}</li>`
+    ).join('') + '</ul>';
 }
 
 function resolveAutoFillValue(key, employeeData) {
@@ -979,8 +1063,73 @@ function isoToDdMmYyyy(iso) {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
 }
 
+const MAX_SUBMISSIONS_PER_TEMPLATE = 100;
+
 function wireSigningView() {
   document.getElementById('sendForSignatureBtn').addEventListener('click', sendForSignature);
+  document.getElementById('signTemplateSelect').addEventListener('change', onSignTemplateChange);
+  document.getElementById('startMultiSignRoundBtn').addEventListener('click', startMultiSignRound);
+}
+
+function onSignTemplateChange() {
+  const templateId = document.getElementById('signTemplateSelect').value;
+  const template = signTemplates.find(t => t.id === templateId);
+  const isMultiSign = template && template.mode === 'multiSign';
+  document.getElementById('singleSignForm').style.display = isMultiSign ? 'none' : 'block';
+  document.getElementById('multiSignForm').style.display = isMultiSign ? 'block' : 'none';
+  document.getElementById('sendForSignatureHint').textContent = '';
+  if (!isMultiSign) return;
+
+  const roles = (template.fields || []).filter(f => f.type === 'signature');
+  const rolesEl = document.getElementById('multiSignRoles');
+  rolesEl.innerHTML = roles.map(f => `
+    <div class="row" data-role-field="${f.id}">
+      <div class="field"><label>תפקיד</label><input value="${escapeHtml(f.label || 'חותם')}" disabled></div>
+      <div class="field"><label>שם</label><input class="role-name" placeholder="שם מלא"></div>
+      <div class="field"><label>אימייל</label><input type="email" class="role-email" placeholder="אימייל"></div>
+    </div>
+  `).join('') || '<p class="muted">לתבנית זו אין שדות חתימה מוגדרים.</p>';
+}
+
+// A "submission" against a template's 100-cap is: one single-mode send, or
+// one multi-sign round (not one per role) - mirrors PDFSign's per-template
+// running counter semantics.
+async function countTemplateSubmissions(templateId) {
+  const [singleSnap, roundsSnap] = await Promise.all([
+    db.collection('signingRequests').where('templateId', '==', templateId).where('mode', '==', 'single').get(),
+    db.collection('signingRounds').where('templateId', '==', templateId).get()
+  ]);
+  return singleSnap.size + roundsSnap.size;
+}
+
+// Shared by the single "שליחה לחתימה" button and bulk-send - creates one
+// OTP-gated signingRequests doc for one employee and emails (or returns, if
+// EmailJS isn't configured) the link+code.
+async function createSingleSigningRequest(employeeId, employeeData, template, recipientEmail) {
+  const fields = JSON.parse(JSON.stringify(template.fields || []));
+  const autoFilledValues = {};
+  fields.forEach(f => { if (f.autoFillFrom) autoFilledValues[f.id] = resolveAutoFillValue(f.autoFillFrom, employeeData); });
+
+  const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+  const otpCodeHash = await sha256Hex(otpCode);
+
+  const reqRef = db.collection('signingRequests').doc();
+  await db.collection('signingSecrets').doc(reqRef.id).set({ otpCodeHash });
+  await reqRef.set({
+    employeeId,
+    employeeName: `${employeeData.firstName || ''} ${employeeData.lastName || ''}`.trim(),
+    templateId: template.id, templateName: template.name, mode: 'single',
+    recipientEmail, fields, autoFilledValues,
+    otpVerified: false, otpAttempts: 0, status: 'sent',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
+  });
+
+  const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
+  const emailed = await sendSigningEmail({
+    to_email: recipientEmail, to_name: employeeData.firstName || '',
+    subject: `${template.name} - לחתימה`, link, otp_code: otpCode
+  });
+  return { requestId: reqRef.id, link, otpCode, emailed };
 }
 
 async function sendForSignature() {
@@ -993,32 +1142,12 @@ async function sendForSignature() {
 
   hint.textContent = 'שולח...';
   try {
+    if ((await countTemplateSubmissions(templateId)) >= MAX_SUBMISSIONS_PER_TEMPLATE) {
+      hint.textContent = `התבנית הגיעה למכסה של ${MAX_SUBMISSIONS_PER_TEMPLATE} הגשות.`;
+      return;
+    }
     const template = signTemplates.find(t => t.id === templateId);
-    const fields = JSON.parse(JSON.stringify(template.fields || []));
-    const autoFilledValues = {};
-    fields.forEach(f => { if (f.autoFillFrom) autoFilledValues[f.id] = resolveAutoFillValue(f.autoFillFrom, currentEmployeeData); });
-
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    const otpCodeHash = await sha256Hex(otpCode);
-
-    const reqRef = db.collection('signingRequests').doc();
-    await db.collection('signingSecrets').doc(reqRef.id).set({ otpCodeHash });
-    await reqRef.set({
-      employeeId: editingEmployeeId,
-      employeeName: `${currentEmployeeData.firstName || ''} ${currentEmployeeData.lastName || ''}`.trim(),
-      templateId, templateName: template.name,
-      recipientEmail, fields, autoFilledValues,
-      otpVerified: false, otpAttempts: 0, status: 'sent',
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
-    });
-
-    const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
-    const emailed = await sendSigningEmail({
-      to_email: recipientEmail,
-      to_name: currentEmployeeData.firstName || '',
-      subject: `${template.name} - לחתימה`,
-      link, otp_code: otpCode
-    });
+    const { link, otpCode, emailed } = await createSingleSigningRequest(editingEmployeeId, currentEmployeeData, template, recipientEmail);
 
     document.getElementById('signRecipientEmail').value = '';
     hint.textContent = '';
@@ -1032,23 +1161,132 @@ async function sendForSignature() {
   }
 }
 
+async function startMultiSignRound() {
+  const hint = document.getElementById('sendForSignatureHint');
+  const templateId = document.getElementById('signTemplateSelect').value;
+  if (!editingEmployeeId) { hint.textContent = 'יש לשמור את העובד תחילה.'; return; }
+  if (!templateId) { hint.textContent = 'יש לבחור תבנית.'; return; }
+  const template = signTemplates.find(t => t.id === templateId);
+
+  const roleRows = Array.from(document.querySelectorAll('#multiSignRoles [data-role-field]'));
+  if (!roleRows.length) { hint.textContent = 'לתבנית זו אין שדות חתימה.'; return; }
+  const roleInputs = roleRows.map(row => ({
+    fieldId: row.dataset.roleField,
+    roleLabel: row.querySelector('input[disabled]').value,
+    name: row.querySelector('.role-name').value.trim(),
+    email: row.querySelector('.role-email').value.trim()
+  }));
+  if (roleInputs.some(r => !r.name || !r.email)) { hint.textContent = 'יש להזין שם ואימייל לכל תפקיד.'; return; }
+
+  hint.textContent = 'יוצר סבב חתימות...';
+  try {
+    if ((await countTemplateSubmissions(templateId)) >= MAX_SUBMISSIONS_PER_TEMPLATE) {
+      hint.textContent = `התבנית הגיעה למכסה של ${MAX_SUBMISSIONS_PER_TEMPLATE} הגשות.`;
+      return;
+    }
+    const fields = JSON.parse(JSON.stringify(template.fields || []));
+    const autoFilledValues = {};
+    fields.forEach(f => { if (f.autoFillFrom) autoFilledValues[f.id] = resolveAutoFillValue(f.autoFillFrom, currentEmployeeData); });
+
+    const roundRef = db.collection('signingRounds').doc();
+    const employeeName = `${currentEmployeeData.firstName || ''} ${currentEmployeeData.lastName || ''}`.trim();
+    const linksSummary = [];
+
+    for (const role of roleInputs) {
+      const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+      const otpCodeHash = await sha256Hex(otpCode);
+      const reqRef = db.collection('signingRequests').doc();
+      await db.collection('signingSecrets').doc(reqRef.id).set({ otpCodeHash });
+      await reqRef.set({
+        employeeId: editingEmployeeId, employeeName,
+        templateId, templateName: template.name, mode: 'multiSign',
+        roundId: roundRef.id, roleFieldId: role.fieldId, roleLabel: role.roleLabel,
+        recipientEmail: role.email, recipientName: role.name,
+        otpVerified: false, otpAttempts: 0, status: 'sent',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
+      });
+      role.requestId = reqRef.id;
+
+      const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
+      const emailed = await sendSigningEmail({
+        to_email: role.email, to_name: role.name,
+        subject: `${template.name} - לחתימה (${role.roleLabel})`,
+        link, otp_code: otpCode
+      });
+      linksSummary.push(`${role.roleLabel} (${role.email}): ${link} | קוד: ${otpCode}${emailed ? '' : ' [לא נשלח אימייל]'}`);
+    }
+
+    await roundRef.set({
+      employeeId: editingEmployeeId, employeeName,
+      templateId, templateName: template.name,
+      fields, autoFilledValues,
+      roles: roleInputs.map(r => ({ fieldId: r.fieldId, roleLabel: r.roleLabel, requestId: r.requestId, email: r.email, name: r.name })),
+      status: 'in_progress', values: {}, signerNames: {}, rawSignatures: {},
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(), createdBy: currentUserLabel()
+    });
+
+    document.querySelectorAll('#multiSignRoles .role-name, #multiSignRoles .role-email').forEach(el => el.value = '');
+    hint.textContent = '';
+    await loadSigningRequests(editingEmployeeId);
+    alert('סבב חתימות נוצר.\n\n' + linksSummary.join('\n\n'));
+  } catch (e) {
+    hint.textContent = 'שגיאה: ' + e.message;
+  }
+}
+
 const SIGNING_STATUS_LABELS = { sent: 'ממתין', signed: 'נחתם', expired: 'פג תוקף' };
+const ROUND_STATUS_LABELS = { in_progress: 'בתהליך', completing: 'משלים...', completed: 'הושלם' };
 
 async function loadSigningRequests(employeeId) {
-  const snap = await db.collection('signingRequests').where('employeeId', '==', employeeId).orderBy('createdAt', 'desc').get();
+  const [singleSnap, roundsSnap] = await Promise.all([
+    db.collection('signingRequests').where('employeeId', '==', employeeId).orderBy('createdAt', 'desc').get(),
+    db.collection('signingRounds').where('employeeId', '==', employeeId).orderBy('createdAt', 'desc').get()
+  ]);
   const ul = document.getElementById('signingRequestsList');
-  ul.innerHTML = snap.docs.map(d => {
+
+  const singleRows = singleSnap.docs
+    .filter(d => d.data().mode !== 'multiSign')
+    .map(d => {
+      const r = d.data();
+      const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
+      return `<li>
+        <span>${escapeHtml(r.templateName)} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail)} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+        <span>
+          ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote="${d.id}">הוספה לתיק המסמכים</button>` : ''}
+          ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+          ${r.status === 'sent' ? `<button class="btn small danger" data-expire="${d.id}">ביטול</button>` : ''}
+        </span>
+      </li>`;
+    });
+
+  const roundRows = roundsSnap.docs.map(d => {
     const r = d.data();
-    const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
-    return `<li>
-      <span>${escapeHtml(r.templateName)} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail)} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
-      <span>
-        ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote="${d.id}">הוספה לתיק המסמכים</button>` : ''}
-        ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
-        ${r.status === 'sent' ? `<button class="btn small danger" data-expire="${d.id}">ביטול</button>` : ''}
-      </span>
+    const signedCount = Object.keys(r.rawSignatures || {}).length + (r.status === 'completed' ? 0 : 0);
+    const totalRoles = (r.roles || []).length;
+    const summary = r.status === 'in_progress'
+      ? `${Object.keys(r.signerNames || {}).length}/${totalRoles} חתמו`
+      : (ROUND_STATUS_LABELS[r.status] || r.status);
+    const roleLines = (r.roles || []).map(role => {
+      const signed = !!(r.signerNames || {})[role.fieldId];
+      return `<li style="padding-inline-start:16px">
+        <span class="muted">${escapeHtml(role.roleLabel)} - ${signed ? 'נחתם ע"י ' + escapeHtml((r.signerNames || {})[role.fieldId]) : 'ממתין ל' + escapeHtml(role.email)}</span>
+        ${!signed ? `<button class="btn small" data-copy-role-link="${role.requestId}">העתקת קישור</button>` : ''}
+      </li>`;
+    }).join('');
+    return `<li style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;justify-content:space-between">
+        <span>${escapeHtml(r.templateName)} (רב-חותמים) <span class="muted">· ${summary} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+        <span>
+          ${r.status === 'completed' && !r.resultDocumentId ? `<button class="btn small" data-promote-round="${d.id}">הוספה לתיק המסמכים</button>` : ''}
+          ${r.status === 'completed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+          ${r.status === 'completing' ? `<button class="btn small" data-retry-round="${d.id}">נסה שוב להשלים</button>` : ''}
+        </span>
+      </div>
+      <ul class="list-mini">${roleLines}</ul>
     </li>`;
-  }).join('') || '<li class="muted">לא נשלחו בקשות חתימה</li>';
+  });
+
+  ul.innerHTML = singleRows.join('') + roundRows.join('') || '<li class="muted">לא נשלחו בקשות חתימה</li>';
 
   ul.querySelectorAll('[data-promote]').forEach(btn => {
     btn.addEventListener('click', () => promoteSignedDocument(employeeId, btn.dataset.promote));
@@ -1059,6 +1297,94 @@ async function loadSigningRequests(employeeId) {
       await loadSigningRequests(employeeId);
     });
   });
+  ul.querySelectorAll('[data-promote-round]').forEach(btn => {
+    btn.addEventListener('click', () => promoteSignedRound(employeeId, btn.dataset.promoteRound));
+  });
+  ul.querySelectorAll('[data-retry-round]').forEach(btn => {
+    btn.addEventListener('click', () => retryRoundCompletion(employeeId, btn.dataset.retryRound));
+  });
+  ul.querySelectorAll('[data-copy-role-link]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const link = new URL('sign.html?req=' + btn.dataset.copyRoleLink, location.href).toString();
+      navigator.clipboard.writeText(link).then(
+        () => alert('הקישור הועתק (הקוד האישי נשלח באימייל בזמן היצירה ואינו ניתן לשליפה חוזרת).'),
+        () => alert('הקישור: ' + link)
+      );
+    });
+  });
+}
+
+async function promoteSignedRound(employeeId, roundId) {
+  try {
+    const roundDoc = await db.collection('signingRounds').doc(roundId).get();
+    const r = roundDoc.data();
+    const signedPath = `signingRounds/${roundId}/signed.pdf`;
+    const url = await storage.ref(signedPath).getDownloadURL();
+    const res = await fetch(url);
+    const blob = await res.blob();
+
+    const docRef = db.collection('employees').doc(employeeId).collection('documents').doc();
+    const destPath = `documents/${employeeId}/${docRef.id}_signed.pdf`;
+    await storage.ref(destPath).put(blob);
+    await docRef.set({
+      name: `${r.templateName} (חתום - רב-חותמים)`, storagePath: destPath, contentType: 'application/pdf', sizeBytes: blob.size,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUserLabel()
+    });
+    await db.collection('signingRounds').doc(roundId).update({ resultDocumentId: docRef.id });
+
+    await loadDocuments(employeeId);
+    await loadSigningRequests(employeeId);
+  } catch (e) {
+    alert('שגיאה בהוספת המסמך לתיק: ' + e.message);
+  }
+}
+
+let _adminPdfLibLoaded = false;
+function loadPdfLibForAdmin() {
+  return new Promise((resolve, reject) => {
+    if (window.PDFLib || _adminPdfLibLoaded) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = PDF_LIB_SCRIPT_URL;
+    s.onload = () => { _adminPdfLibLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Recovery path for a round stuck at status 'completing' - e.g. the signer
+// who completed the last role had their browser crash between the Firestore
+// transaction committing and the flatten/upload finishing. Re-runs just that
+// final step using whatever values/signatures are already on the round doc.
+async function retryRoundCompletion(employeeId, roundId) {
+  const roundRef = db.collection('signingRounds').doc(roundId);
+  try {
+    await loadPdfLibForAdmin();
+    const round = (await roundRef.get()).data();
+    const template = (await db.collection('templates').doc(round.templateId).get()).data();
+    const url = await storage.ref(template.storagePath).getDownloadURL();
+    const originalBytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+
+    const resolveStamp = (field) => {
+      if (field.type === 'signature') {
+        const sig = (round.rawSignatures || {})[field.id];
+        return sig ? { kind: 'signature', dataUrl: sig } : null;
+      }
+      if (field.type === 'checkbox') return { kind: 'checkbox', checked: !!(round.values || {})[field.id] };
+      const val = (round.values || {})[field.id];
+      return val ? { kind: 'text', value: String(val) } : null;
+    };
+    const flattenedBytes = await flattenPdf(originalBytes, round.fields, resolveStamp);
+    await storage.ref(`signingRounds/${roundId}/signed.pdf`).put(new Blob([flattenedBytes], { type: 'application/pdf' }));
+    await roundRef.update({
+      status: 'completed', completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      rawSignatures: firebase.firestore.FieldValue.delete()
+    });
+
+    await loadSigningRequests(employeeId);
+    alert('הסבב הושלם בהצלחה.');
+  } catch (e) {
+    alert('שגיאה בניסיון להשלים: ' + e.message);
+  }
 }
 
 async function promoteSignedDocument(employeeId, requestId) {

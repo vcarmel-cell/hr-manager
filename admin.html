@@ -32,6 +32,7 @@
     <button class="tab-btn" data-view="fields">שדות מותאמים אישית</button>
     <button class="tab-btn" data-view="users" id="usersTabBtn">משתמשי מערכת</button>
     <button class="tab-btn" data-view="notifSettings" id="notifSettingsTabBtn" style="display:none">ניהול זמן להתראות</button>
+    <button class="tab-btn" data-view="bulkSend" id="bulkSendTabBtn" style="display:none">שליחה מרוכזת</button>
     <button class="tab-btn" id="templatesLinkBtn" style="display:none">תבניות לחתימה</button>
   </nav>
 
@@ -107,6 +108,24 @@
         </div>
         <p class="hint">למנהל-על יש גישה לכל המחלקות. למנהל מחלקה יש לבחור מחלקות לאחר ההוספה. המשתמש יקבל אימייל לקביעת סיסמה.</p>
         <ul class="list-mini" id="userList"></ul>
+      </div>
+    </section>
+
+    <!-- Bulk-send view -->
+    <section id="view-bulkSend" style="display:none">
+      <div class="card">
+        <h2>שליחה מרוכזת לחתימה</h2>
+        <p class="hint">לדוגמא: שליחת טופס 101 לכל העובדים הפעילים בתחילת שנה.</p>
+        <div class="toolbar">
+          <select id="bulkTemplateSelect"><option value="">-- בחירת תבנית --</option></select>
+          <select id="bulkDeptFilter"><option value="">כל המחלקות</option></select>
+          <button class="btn" id="bulkSelectAllBtn">בחירת הכל</button>
+          <button class="btn" id="bulkSelectNoneBtn">ניקוי בחירה</button>
+        </div>
+        <ul class="list-mini" id="bulkEmployeesList"></ul>
+        <button class="btn primary" id="bulkSendBtn" style="margin-top:10px">שליחה לנבחרים</button>
+        <p class="hint" id="bulkSendHint"></p>
+        <div id="bulkSendResults"></div>
       </div>
     </section>
 
@@ -278,9 +297,21 @@
     <div class="modal-pane" data-pane="signing">
       <div class="toolbar">
         <select id="signTemplateSelect"><option value="">-- בחירת תבנית --</option></select>
-        <input type="email" id="signRecipientEmail" placeholder="אימייל הנמען">
-        <button class="btn primary" id="sendForSignatureBtn">שליחה לחתימה</button>
       </div>
+
+      <div id="singleSignForm">
+        <div class="toolbar">
+          <input type="email" id="signRecipientEmail" placeholder="אימייל הנמען">
+          <button class="btn primary" id="sendForSignatureBtn">שליחה לחתימה</button>
+        </div>
+      </div>
+
+      <div id="multiSignForm" style="display:none">
+        <p class="hint">מסמך רב-חותמים - יש להזין שם ואימייל לכל תפקיד:</p>
+        <div id="multiSignRoles"></div>
+        <button class="btn primary" id="startMultiSignRoundBtn">התחלת סבב חתימות חדש</button>
+      </div>
+
       <p class="hint" id="sendForSignatureHint"></p>
       <ul class="list-mini" id="signingRequestsList"></ul>
     </div>

@@ -1,6 +1,7 @@
 let requestId, requestData, templateData, originalPdfBytes;
+let roundData = null; // set only when requestData.mode === 'multiSign'
 let pageInfos = [];
-let fieldControls = {}; // fieldId -> { getValue(), el }
+let fieldControls = {}; // fieldId -> { getValue(), kind }
 
 init();
 
@@ -89,10 +90,23 @@ function showDone(title, msg) {
   document.getElementById('doneMsg').textContent = msg;
 }
 
+function isMultiSign() { return requestData.mode === 'multiSign'; }
+
 async function renderFillScreen() {
+  if (isMultiSign()) {
+    const roundDoc = await db.collection('signingRounds').doc(requestData.roundId).get();
+    if (!roundDoc.exists || roundDoc.data().status !== 'in_progress'
+        || (roundDoc.data().signerNames || {})[requestData.roleFieldId]) {
+      showDone('הקישור אינו בתוקף', 'החתימה הזו כבר בוצעה, או שסבב החתימות הסתיים.');
+      return;
+    }
+    roundData = roundDoc.data();
+  }
+
   const tplDoc = await db.collection('templates').doc(requestData.templateId).get();
   templateData = tplDoc.data();
-  document.getElementById('tplTitle').textContent = requestData.templateName || templateData.name;
+  document.getElementById('tplTitle').textContent =
+    requestData.templateName + (isMultiSign() ? ` — חתימת ${requestData.roleLabel}` : '');
 
   const url = await storage.ref(templateData.storagePath).getDownloadURL();
   const res = await fetch(url);
@@ -106,7 +120,7 @@ async function renderFillScreen() {
   fieldControls = {};
   const cssWidth = Math.min(700, pagesEl.clientWidth || 700);
 
-  const fields = requestData.fields || [];
+  const fields = isMultiSign() ? (roundData.fields || []) : (requestData.fields || []);
   for (let i = 0; i < doc.numPages; i++) {
     const page = await doc.getPage(i + 1);
     const wrap = document.createElement('div');
@@ -127,7 +141,7 @@ async function renderFillScreen() {
   }
 
   document.getElementById('fillScreen').style.display = 'block';
-  document.getElementById('submitSignBtn').addEventListener('click', submitSigning);
+  document.getElementById('submitSignBtn').addEventListener('click', isMultiSign() ? submitMultiSign : submitSigning);
 }
 
 function buildFieldControl(field, overlay) {
@@ -136,7 +150,39 @@ function buildFieldControl(field, overlay) {
   box.className = 'sign-field';
   applyRectPx(box, rectPx);
 
-  const autoValue = (requestData.autoFilledValues || {})[field.id];
+  const autoValue = isMultiSign() ? undefined : (requestData.autoFilledValues || {})[field.id];
+
+  // Multi-sign: a field already filled by another role (shared value), or a
+  // signature field belonging to a role that isn't mine, renders read-only.
+  if (isMultiSign()) {
+    const isMyRole = field.id === requestData.roleFieldId;
+    const alreadySharedValue = (roundData.values || {})[field.id];
+    if (field.type === 'signature' && !isMyRole) {
+      const otherSig = (roundData.rawSignatures || {})[field.id];
+      box.classList.add('sign-field-readonly');
+      if (otherSig) {
+        const img = document.createElement('img');
+        img.src = otherSig; img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'contain';
+        box.appendChild(img);
+      } else {
+        box.style.border = '1px dashed var(--muted)';
+        box.textContent = 'ממתין לחתימת ' + (field.label || '');
+        box.style.fontSize = '10px'; box.style.color = 'var(--muted)';
+      }
+      overlay.appendChild(box);
+      fieldControls[field.id] = { getValue: () => null, kind: 'readonly' };
+      return;
+    }
+    if (field.type !== 'signature' && alreadySharedValue != null && alreadySharedValue !== '') {
+      box.classList.add('sign-field-readonly');
+      box.style.background = '#f0f0f0'; box.style.color = 'var(--muted)'; box.style.fontSize = '12px';
+      box.style.display = 'flex'; box.style.alignItems = 'center'; box.style.padding = '0 4px';
+      box.textContent = field.type === 'checkbox' ? (alreadySharedValue ? '✓' : '—') : String(alreadySharedValue);
+      overlay.appendChild(box);
+      fieldControls[field.id] = { getValue: () => alreadySharedValue, kind: 'readonly' };
+      return;
+    }
+  }
 
   if (field.type === 'signature') {
     const canvas = document.createElement('canvas');
@@ -167,6 +213,12 @@ function buildFieldControl(field, overlay) {
     input.maxLength = 9;
     input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 9); });
   }
+  if (field.type === 'phone') {
+    input.inputMode = 'numeric';
+    input.maxLength = 11;
+    input.placeholder = '050-1234567';
+    attachPhoneMask(input);
+  }
   if (autoValue != null) input.value = autoValue;
   if (field.locked) input.readOnly = true;
   box.appendChild(input);
@@ -174,32 +226,42 @@ function buildFieldControl(field, overlay) {
   fieldControls[field.id] = { getValue: () => input.value.trim(), kind: 'text' };
 }
 
-async function submitSigning() {
-  const errorEl = document.getElementById('submitError');
-  const fields = requestData.fields || [];
+function validateFields(fields, errorEl) {
   const values = {};
-
   for (const field of fields) {
     const ctrl = fieldControls[field.id];
+    if (ctrl.kind === 'readonly') { values[field.id] = ctrl.getValue(); continue; }
     const val = ctrl.getValue();
     if (field.type === 'date' && val && !isValidDateStr(val)) {
       errorEl.textContent = `תאריך לא תקין בשדה "${field.label || ''}" (פורמט: DD.MM.YYYY).`;
-      return;
+      return null;
     }
     if (!field.locked && field.type === 'idNumber' && val && !isValidIsraeliId(val)) {
       errorEl.textContent = `מספר ת.ז. לא תקין בשדה "${field.label || 'ת.ז.'}".`;
-      return;
+      return null;
     }
-    if (!field.locked && field.type === 'signature' && !val) {
+    if (!field.locked && field.type === 'phone' && val && !isValidIsraeliMobile(val)) {
+      errorEl.textContent = `מספר טלפון לא תקין בשדה "${field.label || 'טלפון'}".`;
+      return null;
+    }
+    if (!field.locked && field.required && field.type === 'signature' && !val) {
       errorEl.textContent = `נא לחתום בשדה "${field.label || 'חתימה'}".`;
-      return;
+      return null;
     }
-    if (!field.locked && field.type !== 'checkbox' && field.type !== 'signature' && !val) {
+    if (!field.locked && field.required && field.type !== 'checkbox' && field.type !== 'signature' && !val) {
       errorEl.textContent = `נא למלא את השדה "${field.label || ''}".`;
-      return;
+      return null;
     }
     values[field.id] = val;
   }
+  return values;
+}
+
+async function submitSigning() {
+  const errorEl = document.getElementById('submitError');
+  const fields = requestData.fields || [];
+  const values = validateFields(fields, errorEl);
+  if (!values) return;
 
   errorEl.textContent = '';
   document.getElementById('submitSignBtn').disabled = true;
@@ -224,6 +286,90 @@ async function submitSigning() {
 
     showDone('תודה!', 'המסמך נחתם ונשלח בהצלחה.');
   } catch (e) {
+    errorEl.textContent = 'שגיאה בשליחה: ' + e.message;
+    document.getElementById('submitSignBtn').disabled = false;
+    document.getElementById('submitSignBtn').textContent = 'שליחה';
+  }
+}
+
+async function submitMultiSign() {
+  const errorEl = document.getElementById('submitError');
+  const nameInput = prompt('שם מלא לחתימה:', requestData.recipientName || '');
+  if (!nameInput || !nameInput.trim()) { errorEl.textContent = 'נא להזין שם.'; return; }
+
+  const fields = roundData.fields || [];
+  const values = validateFields(fields, errorEl);
+  if (!values) return;
+  const myValue = values[requestData.roleFieldId]; // the signature data URL for my own role
+  if (!myValue) { errorEl.textContent = 'נא לחתום.'; return; }
+
+  errorEl.textContent = '';
+  document.getElementById('submitSignBtn').disabled = true;
+  document.getElementById('submitSignBtn').textContent = 'שולח...';
+
+  const roundRef = db.collection('signingRounds').doc(requestData.roundId);
+  try {
+    // Only NEW keys I'm contributing (fields I actually filled, not the ones
+    // that were already read-only/pre-filled by another role) - keeps this
+    // update provably additive-only for the Firestore rule.
+    const myNewValues = {};
+    fields.forEach(f => {
+      if (f.id === requestData.roleFieldId) return; // that's the signature itself, tracked separately
+      const ctrl = fieldControls[f.id];
+      if (ctrl.kind !== 'readonly' && values[f.id] != null && values[f.id] !== '') myNewValues[f.id] = values[f.id];
+    });
+
+    let completionResult = null;
+    await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(roundRef);
+      const data = fresh.data();
+      if (data.status !== 'in_progress') throw new Error('ALREADY_HANDLED');
+
+      const newValues = { ...data.values, ...myNewValues };
+      const newSignerNames = { ...data.signerNames, [requestData.roleFieldId]: nameInput.trim() };
+      const newRawSignatures = { ...data.rawSignatures, [requestData.roleFieldId]: myValue };
+
+      const allRoleIds = fields.filter(f => f.type === 'signature').map(f => f.id);
+      const allSigned = allRoleIds.every(id => newRawSignatures[id]);
+      const newStatus = allSigned ? 'completing' : 'in_progress';
+
+      tx.update(roundRef, { values: newValues, signerNames: newSignerNames, rawSignatures: newRawSignatures, status: newStatus });
+      tx.update(db.collection('signingRequests').doc(requestId), { status: 'signed', signedAt: firebase.firestore.FieldValue.serverTimestamp() });
+
+      if (allSigned) completionResult = { fields, values: newValues, rawSignatures: newRawSignatures };
+    });
+
+    if (completionResult) {
+      await loadPdfLib();
+      const resolveStamp = (field) => {
+        if (field.type === 'signature') {
+          const sig = completionResult.rawSignatures[field.id];
+          return sig ? { kind: 'signature', dataUrl: sig } : null;
+        }
+        if (field.type === 'checkbox') return { kind: 'checkbox', checked: !!completionResult.values[field.id] };
+        const val = completionResult.values[field.id];
+        return val ? { kind: 'text', value: String(val) } : null;
+      };
+      const flattenedBytes = await flattenPdf(originalPdfBytes, completionResult.fields, resolveStamp);
+      await storage.ref(`signingRounds/${requestData.roundId}/signed.pdf`).put(new Blob([flattenedBytes], { type: 'application/pdf' }));
+      // rawSignatures must be explicitly deleted (not just left alone) - the
+      // completing->completed security rule requires it entirely absent from
+      // the resulting doc, matching PDFSign's exact behavior of discarding
+      // raw signature images once they're burned into the flattened PDF.
+      await roundRef.update({
+        status: 'completed',
+        completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        rawSignatures: firebase.firestore.FieldValue.delete()
+      });
+      showDone('המסמך הושלם', 'כל החתימות נאספו ועותק חתום נשמר במערכת.');
+    } else {
+      showDone('החתימה שלך נשמרה', 'ממתינים לחתימות נוספות לפני שהמסמך יושלם.');
+    }
+  } catch (e) {
+    if (e.message === 'ALREADY_HANDLED') {
+      showDone('הקישור אינו בתוקף', 'החתימה הזו כבר בוצעה, או שסבב החתימות הסתיים.');
+      return;
+    }
     errorEl.textContent = 'שגיאה בשליחה: ' + e.message;
     document.getElementById('submitSignBtn').disabled = false;
     document.getElementById('submitSignBtn').textContent = 'שליחה';
