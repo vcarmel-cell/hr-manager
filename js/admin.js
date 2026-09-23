@@ -451,66 +451,38 @@ function wireNotifications() {
   });
 }
 
-/* ---- MFA (two-factor / SMS) enrollment ---- */
+/* ---- MFA (two-factor, email-code based - see mfaEmailSecrets/mfaEmailChallenges
+   in firestore.rules for why this is custom rather than Firebase's native
+   phone MFA) ---- */
 
-let mfaVerificationId = null;
-let mfaRecaptchaVerifier = null;
+let mfaEmailEnabled = false;
 
 function wireMfa() {
   document.getElementById('mfaOpenBtn').addEventListener('click', openMfaModal);
   document.getElementById('closeMfaModalBtn').addEventListener('click', closeMfaModal);
-  document.getElementById('mfaSendCodeBtn').addEventListener('click', sendMfaCode);
-  document.getElementById('mfaVerifyCodeBtn').addEventListener('click', verifyMfaCode);
-  document.getElementById('mfaUnenrollBtn').addEventListener('click', unenrollMfa);
-  document.getElementById('mfaSendVerifyEmailBtn').addEventListener('click', sendMfaVerifyEmail);
-  document.getElementById('mfaRecheckVerifyBtn').addEventListener('click', recheckEmailVerified);
+  document.getElementById('mfaSendTestCodeBtn').addEventListener('click', sendMfaTestCode);
+  document.getElementById('mfaVerifyCodeBtn').addEventListener('click', verifyAndEnableMfa);
+  document.getElementById('mfaDisableBtn').addEventListener('click', disableMfa);
 }
 
-function openMfaModal() {
+async function openMfaModal() {
   document.getElementById('mfaModalBackdrop').style.display = 'flex';
   document.getElementById('mfaHint').textContent = '';
-  document.getElementById('mfa_phone').value = '';
   document.getElementById('mfa_code').value = '';
-  document.getElementById('mfaEnrollStep2').style.display = 'none';
-  mfaVerificationId = null;
+  document.getElementById('mfaNotConfiguredBlock').style.display = 'none';
+  document.getElementById('mfaEnabledBlock').style.display = 'none';
+  document.getElementById('mfaSetupStart').style.display = 'none';
+  document.getElementById('mfaSetupVerify').style.display = 'none';
 
-  const enrolledFactors = currentUser.multiFactor ? currentUser.multiFactor.enrolledFactors : [];
-  document.getElementById('mfaEnrolledBlock').style.display = 'none';
-  document.getElementById('mfaNeedsEmailVerifyBlock').style.display = 'none';
-  document.getElementById('mfaEnrollStep1').style.display = 'none';
+  const userDoc = await db.collection('users').doc(currentUser.uid).get();
+  mfaEmailEnabled = userDoc.exists && userDoc.data().mfaEmailEnabled === true;
 
-  if (enrolledFactors.length) {
-    document.getElementById('mfaEnrolledBlock').style.display = 'block';
-    document.getElementById('mfaEnrolledPhone').textContent = enrolledFactors[0].phoneNumber || '';
-  } else if (!currentUser.emailVerified) {
-    // Identity Platform requires a verified email before enrolling a second
-    // factor - without this check the SDK fails with a confusingly unrelated
-    // "auth/invalid-api-key" instead of surfacing the real UNVERIFIED_EMAIL error.
-    document.getElementById('mfaNeedsEmailVerifyBlock').style.display = 'block';
+  if (mfaEmailEnabled) {
+    document.getElementById('mfaEnabledBlock').style.display = 'block';
+  } else if (!emailJsConfigured()) {
+    document.getElementById('mfaNotConfiguredBlock').style.display = 'block';
   } else {
-    document.getElementById('mfaEnrollStep1').style.display = 'block';
-  }
-}
-
-async function sendMfaVerifyEmail() {
-  const hint = document.getElementById('mfaHint');
-  try {
-    await currentUser.sendEmailVerification();
-    hint.style.color = 'var(--success)';
-    hint.textContent = 'נשלח אימייל אימות. יש ללחוץ על הקישור בו, ולאחר מכן על "בדקתי את האימייל".';
-  } catch (e) {
-    hint.style.color = '';
-    hint.textContent = 'שגיאה בשליחת אימייל האימות: ' + e.message;
-  }
-}
-
-async function recheckEmailVerified() {
-  const hint = document.getElementById('mfaHint');
-  await currentUser.reload();
-  if (currentUser.emailVerified) {
-    openMfaModal();
-  } else {
-    hint.textContent = 'האימייל עדיין לא מאומת. יש ללחוץ על הקישור שנשלח ולנסות שוב.';
+    document.getElementById('mfaSetupStart').style.display = 'block';
   }
 }
 
@@ -518,52 +490,63 @@ function closeMfaModal() {
   document.getElementById('mfaModalBackdrop').style.display = 'none';
 }
 
-function getMfaRecaptcha() {
-  if (!mfaRecaptchaVerifier) {
-    mfaRecaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container-enroll', { size: 'invisible' }, auth);
-  }
-  return mfaRecaptchaVerifier;
-}
-
-async function sendMfaCode() {
+async function sendMfaTestCode() {
   const hint = document.getElementById('mfaHint');
-  const phone = document.getElementById('mfa_phone').value.trim();
-  if (!/^\+\d{8,15}$/.test(phone)) { hint.textContent = 'יש להזין מספר טלפון עם קידומת מדינה, לדוגמא +972501234567.'; return; }
-
+  hint.style.color = '';
   hint.textContent = 'שולח...';
   try {
-    const session = await currentUser.multiFactor.getSession();
-    const phoneAuthProvider = new firebase.auth.PhoneAuthProvider(auth);
-    mfaVerificationId = await phoneAuthProvider.verifyPhoneNumber({ phoneNumber: phone, session }, getMfaRecaptcha());
-    document.getElementById('mfaEnrollStep2').style.display = 'block';
-    hint.textContent = 'קוד נשלח. נא להזין אותו למטה.';
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const otpCodeHash = await sha256Hex(code);
+    await db.collection('mfaEmailSecrets').doc(currentUser.uid).set({ otpCodeHash });
+    await db.collection('mfaEmailChallenges').doc(currentUser.uid).set({
+      otpAttempts: 0, verified: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    const emailed = await sendSigningEmail({
+      to_email: currentUser.email, to_name: currentUserLabel(),
+      subject: 'קוד לבדיקת אימות דו-שלבי', link: '', otp_code: code
+    });
+    if (!emailed) {
+      hint.textContent = 'שליחת האימייל נכשלה - יש לוודא ש-EmailJS מוגדר נכון.';
+      return;
+    }
+    document.getElementById('mfaSetupStart').style.display = 'none';
+    document.getElementById('mfaSetupVerify').style.display = 'block';
+    hint.textContent = 'קוד נשלח לאימייל שלך. נא להזין אותו למטה.';
   } catch (e) {
     hint.textContent = 'שגיאה בשליחת הקוד: ' + e.message;
   }
 }
 
-async function verifyMfaCode() {
+async function verifyAndEnableMfa() {
   const hint = document.getElementById('mfaHint');
   const code = document.getElementById('mfa_code').value.trim();
-  if (!mfaVerificationId || !code) return;
+  if (!/^\d{6}$/.test(code)) { hint.textContent = 'יש להזין קוד בן 6 ספרות.'; return; }
 
+  const attemptHash = await sha256Hex(code);
+  const challengeRef = db.collection('mfaEmailChallenges').doc(currentUser.uid);
   try {
-    const cred = firebase.auth.PhoneAuthProvider.credential(mfaVerificationId, code);
-    const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
-    await currentUser.multiFactor.enroll(assertion, 'טלפון ראשי');
+    await challengeRef.update({ otpAttempts: firebase.firestore.FieldValue.increment(1), verified: true, attemptHash });
+  } catch (e) {
+    try {
+      await challengeRef.update({ otpAttempts: firebase.firestore.FieldValue.increment(1), verified: false, attemptHash });
+    } catch (e2) { /* attempts exhausted */ }
+  }
+
+  const fresh = await challengeRef.get();
+  if (fresh.exists && fresh.data().verified) {
+    await db.collection('users').doc(currentUser.uid).set({ mfaEmailEnabled: true }, { merge: true });
     hint.style.color = 'var(--success)';
     hint.textContent = 'אימות דו-שלבי הופעל בהצלחה.';
     openMfaModal();
-  } catch (e) {
+  } else {
     hint.style.color = '';
-    hint.textContent = 'קוד שגוי או שפג תוקפו: ' + e.message;
+    hint.textContent = 'קוד שגוי.' + (fresh.exists && fresh.data().otpAttempts >= 5 ? ' יותר מדי ניסיונות - יש לפתוח את החלון מחדש כדי לשלוח קוד חדש.' : '');
   }
 }
 
-async function unenrollMfa() {
+async function disableMfa() {
   if (!confirm('לבטל אימות דו-שלבי? מעתה תוכל/י להתחבר עם סיסמה בלבד.')) return;
-  const enrolledFactors = currentUser.multiFactor.enrolledFactors;
-  await currentUser.multiFactor.unenroll(enrolledFactors[0]);
+  await db.collection('users').doc(currentUser.uid).set({ mfaEmailEnabled: false }, { merge: true });
   openMfaModal();
 }
 

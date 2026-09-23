@@ -27,6 +27,11 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
       allow write: if isSuperAdmin();
+      // Self-service carve-out: any signed-in admin/manager can flip their own
+      // email-MFA flag without needing superadmin (matches the self-service
+      // display-name pattern already used for the owner).
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mfaEmailEnabled']);
     }
 
     match /departments/{deptId} {
@@ -119,6 +124,37 @@ service cloud.firestore {
       allow read: if false;
       allow create: if isSuperAdmin() || isManager();
       allow update, delete: if false;
+    }
+
+    // Email-based two-factor login (custom, not Firebase's native phone MFA -
+    // that required more Google Cloud infrastructure than this project needed
+    // elsewhere: reCAPTCHA Enterprise, verified email precondition, etc; this
+    // reuses the exact hash-in-a-never-readable-doc pattern already proven
+    // above for signingSecrets/signingRequests, self-scoped to request.auth.uid
+    // instead of an anonymous token).
+    match /mfaEmailSecrets/{uid} {
+      allow read: if false;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /mfaEmailChallenges/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid;
+
+      // Starting a fresh challenge (new code requested) - always allowed for
+      // self; the actual secret is a separate never-readable doc, so this
+      // alone can't be used to skip verification.
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.verified == false && request.resource.data.otpAttempts == 0;
+
+      // Attempting to verify a code - capped at 5 tries, verified only flips
+      // true if the submitted hash matches mfaEmailSecrets/{uid} via get().
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && resource.data.verified == false
+        && resource.data.otpAttempts < 5
+        && request.resource.data.otpAttempts == resource.data.otpAttempts + 1
+        && request.resource.data.verified == (request.resource.data.attemptHash == get(/databases/$(database)/documents/mfaEmailSecrets/$(uid)).data.otpCodeHash)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['otpAttempts', 'verified', 'attemptHash']);
     }
   }
 }

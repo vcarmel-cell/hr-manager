@@ -130,29 +130,29 @@
   </main>
 </div>
 
-<!-- MFA (two-factor) enrollment modal -->
+<!-- MFA (two-factor, email-code based) modal -->
 <div class="modal-backdrop" id="mfaModalBackdrop" style="display:none">
   <div class="modal" style="max-width:400px">
-    <h2>אימות דו-שלבי (SMS)</h2>
-    <div id="mfaEnrolledBlock" style="display:none">
-      <p>אימות דו-שלבי <strong>פעיל</strong> עבור מספר <span id="mfaEnrolledPhone"></span>.</p>
-      <button class="btn danger" id="mfaUnenrollBtn">ביטול אימות דו-שלבי</button>
+    <h2>אימות דו-שלבי (מייל)</h2>
+
+    <div id="mfaNotConfiguredBlock" style="display:none">
+      <p class="hint">יש להגדיר תחילה שירות שליחת אימייל (EmailJS) במערכת לפני שניתן להפעיל אימות דו-שלבי - אחרת אין דרך לקבל את הקוד בכניסה הבאה.</p>
     </div>
-    <div id="mfaNeedsEmailVerifyBlock" style="display:none">
-      <p class="hint">Firebase דורש שכתובת האימייל של החשבון תהיה מאומתת לפני הפעלת אימות דו-שלבי.</p>
-      <button class="btn primary" id="mfaSendVerifyEmailBtn">שליחת אימייל אימות</button>
-      <button class="btn" id="mfaRecheckVerifyBtn">בדקתי את האימייל - רענון סטטוס</button>
+
+    <div id="mfaEnabledBlock" style="display:none">
+      <p>אימות דו-שלבי במייל <strong>פעיל</strong> עבור חשבון זה.</p>
+      <button class="btn danger" id="mfaDisableBtn">ביטול אימות דו-שלבי</button>
     </div>
-    <div id="mfaEnrollStep1">
-      <p class="hint">בכל כניסה למערכת תתבקש/י להזין גם קוד שנשלח ב-SMS. יש חיוב קטן לכל שליחת קוד.</p>
-      <div class="field"><label>מספר טלפון (עם קידומת מדינה, לדוגמא +972501234567)</label><input id="mfa_phone" placeholder="+972501234567"></div>
-      <button class="btn primary" id="mfaSendCodeBtn">שליחת קוד אימות</button>
+
+    <div id="mfaSetupStart" style="display:none">
+      <p class="hint">בכל כניסה למערכת תתבקש/י להזין גם קוד שיישלח לאימייל שלך. כדי לוודא שהקוד באמת מגיע, נשלח עכשיו קוד לבדיקה - יש להזין אותו כדי להפעיל בפועל.</p>
+      <button class="btn primary" id="mfaSendTestCodeBtn">שליחת קוד לבדיקה</button>
     </div>
-    <div id="mfaEnrollStep2" style="display:none">
-      <div class="field"><label>קוד אימות שנשלח ב-SMS</label><input id="mfa_code" inputmode="numeric" maxlength="6"></div>
+    <div id="mfaSetupVerify" style="display:none">
+      <div class="field"><label>קוד שהתקבל במייל</label><input id="mfa_code" inputmode="numeric" maxlength="6"></div>
       <button class="btn primary" id="mfaVerifyCodeBtn">אימות והפעלה</button>
     </div>
-    <div id="recaptcha-container-enroll"></div>
+
     <p class="error-msg" id="mfaHint"></p>
     <div class="modal-actions">
       <button class="btn" id="closeMfaModalBtn">סגירה</button>
