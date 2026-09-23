@@ -46,5 +46,16 @@ service firebase.storage {
         && request.resource.size < 15 * 1024 * 1024;
       allow read: if isAdminOrManagerOfDept(employeeData(signingRequestData(requestId).employeeId).departmentId);
     }
+
+    // Final flattened PDF for a completed multi-sign round. Write is gated on
+    // the round doc having just transitioned to 'completing' (the Firestore
+    // transaction already verified this is the signer who completed the last
+    // role) — mirrors the single-request pattern above.
+    function signingRoundData(roundId) { return firestore.get(/databases/(default)/documents/signingRounds/$(roundId)).data; }
+    match /signingRounds/{roundId}/{fileName} {
+      allow write: if signingRoundData(roundId).status == 'completing'
+        && request.resource.size < 15 * 1024 * 1024;
+      allow read: if isAdminOrManagerOfDept(employeeData(signingRoundData(roundId).employeeId).departmentId);
+    }
   }
 }

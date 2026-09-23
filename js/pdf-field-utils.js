@@ -13,9 +13,22 @@ const FIELD_TYPE_LABELS = {
   number: 'מספר',
   date: 'תאריך',
   idNumber: 'ת.ז.',
+  phone: 'טלפון נייד',
   checkbox: 'תיבת סימון',
   signature: 'חתימה'
 };
+
+// בדיקת מספר טלפון נייד ישראלי: 05X ואז 7 ספרות (עם/בלי מקף).
+function isValidIsraeliMobile(value) {
+  return /^05\d-?\d{7}$/.test(String(value || '').trim());
+}
+
+function attachPhoneMask(input) {
+  input.addEventListener('input', () => {
+    const digits = input.value.replace(/\D/g, '').slice(0, 10);
+    input.value = digits.length > 3 ? digits.slice(0, 3) + '-' + digits.slice(3) : digits;
+  });
+}
 
 // בדיקת ספרת ביקורת לתעודת זהות ישראלית: 9 ספרות (משלימים אפסים משמאל),
 // כל ספרה מוכפלת לסירוגין ב-1/2 (החל מ-1 בספרה הראשונה), תוצאה מעל 9

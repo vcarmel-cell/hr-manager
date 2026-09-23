@@ -24,6 +24,15 @@ service cloud.firestore {
         && get(employeeDocRef(employeeId)).data.portalActive != false;
     }
 
+    // A map can only gain keys, never lose or change one it already had —
+    // ported from PDFSign's exact proven pattern for letting concurrent
+    // anonymous signers additively merge into a shared multi-sign round
+    // without a transaction race letting one overwrite another's data.
+    function additiveMapUpdate(beforeMap, afterMap) {
+      let d = beforeMap.diff(afterMap);
+      return d.removedKeys().size() == 0 && d.changedKeys().size() == 0;
+    }
+
     match /users/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
       allow write: if isSuperAdmin();
@@ -124,6 +133,42 @@ service cloud.firestore {
       allow read: if false;
       allow create: if isSuperAdmin() || isManager();
       allow update, delete: if false;
+    }
+
+    // Shared state for a multi-signer round (e.g. עובד + מנהל co-signing one
+    // document). Each role still gets its own signingRequests/{id} doc for
+    // its OTP-gated link (unchanged mechanics, reused as-is) - this doc holds
+    // the values/signatures all roles additively merge into, so a completed
+    // round can be flattened into one final PDF.
+    match /signingRounds/{roundId} {
+      allow read: if isSignedIn();
+      allow create: if isAdminOrManagerOfDept(get(employeeDocRef(request.resource.data.employeeId)).data.departmentId);
+
+      // Any signed-in (anonymous) role-signer additively merging their own
+      // contribution, or (the signer who completes the last role) flattening
+      // and finalizing. Mirrors PDFSign's isSignerPartialUpdate exactly.
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['values', 'signerNames', 'rawSignatures', 'status', 'completedAt', 'resultDocumentId'])
+        && (
+          (resource.data.status == 'in_progress'
+            && (request.resource.data.status == 'in_progress' || request.resource.data.status == 'completing')
+            && !('completedAt' in request.resource.data) && !('resultDocumentId' in request.resource.data)
+            && additiveMapUpdate(resource.data.values, request.resource.data.values)
+            && additiveMapUpdate(resource.data.signerNames, request.resource.data.signerNames)
+            && additiveMapUpdate(resource.data.rawSignatures, request.resource.data.rawSignatures))
+          ||
+          (resource.data.status == 'completing' && request.resource.data.status == 'completed'
+            && request.resource.data.values == resource.data.values
+            && request.resource.data.signerNames == resource.data.signerNames
+            && !('rawSignatures' in request.resource.data)
+            && request.resource.data.completedAt == request.time)
+        );
+
+      // Admin/manager management (e.g. marking stale, or promoting the final
+      // PDF into the employee's documents tab and recording resultDocumentId).
+      allow update: if isAdminOrManagerOfDept(get(employeeDocRef(resource.data.employeeId)).data.departmentId);
+      allow delete: if isSuperAdmin();
     }
 
     // Email-based two-factor login (custom, not Firebase's native phone MFA -

@@ -8,6 +8,10 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "553944662091"
 };
 
+// Filled in once functions/detectFields is deployed (see functions/index.js).
+// Until then, aiDetectConfigured() in templates.js keeps the button hidden.
+const AI_DETECT_FUNCTION_URL = 'https://us-central1-hr-manager-vc.cloudfunctions.net/detectFields';
+
 if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
 const db = firebase.firestore();
 const auth = firebase.auth();

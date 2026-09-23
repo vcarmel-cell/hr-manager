@@ -5,8 +5,10 @@ let currentFields = [];
 let currentPdfBytes = null;
 let selectedFieldId = null;
 let pageInfos = []; // { pageWidthPt, pageHeightPt, cssWidth, cssHeight }
+let pageCanvases = [];
 let activeFieldType = null;
-const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], idNumber: [110, 22], checkbox: [24, 24], signature: [180, 60] };
+const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], idNumber: [110, 22], phone: [120, 22], checkbox: [24, 24], signature: [180, 60] };
+const MAX_TEMPLATES = 20;
 
 init();
 
@@ -28,6 +30,10 @@ async function init() {
   document.querySelectorAll('.tool-btn').forEach(btn => {
     btn.addEventListener('click', () => setActiveTool(btn.dataset.type === activeFieldType ? null : btn.dataset.type));
   });
+  document.getElementById('tplMultiSign').addEventListener('change', (e) => {
+    document.getElementById('multiSignHint').style.display = e.target.checked ? 'block' : 'none';
+  });
+  document.getElementById('aiDetectBtn').addEventListener('click', runAiDetect);
 
   await loadPdfLib();
   await loadTemplatesList();
@@ -62,9 +68,13 @@ function resetToNewTemplate() {
   document.getElementById('tplName').value = '';
   document.getElementById('tplFile').value = '';
   document.getElementById('deleteTemplateBtn').style.display = 'none';
+  document.getElementById('aiDetectBtn').style.display = 'none';
   document.getElementById('tplHint').textContent = '';
   document.getElementById('tplLayout').style.display = 'none';
   document.getElementById('tplPages').innerHTML = '';
+  document.getElementById('tplMultiSign').checked = false;
+  document.getElementById('tplMultiSign').disabled = false;
+  document.getElementById('multiSignHint').style.display = 'none';
   closeFieldForm();
 }
 
@@ -78,13 +88,77 @@ async function onSelectTemplate() {
   document.getElementById('tplName').value = tpl.name;
   document.getElementById('tplFile').value = '';
   document.getElementById('deleteTemplateBtn').style.display = 'inline-block';
+  document.getElementById('aiDetectBtn').style.display = aiDetectConfigured() ? 'inline-block' : 'none';
   document.getElementById('tplHint').textContent = 'טוען PDF...';
+  document.getElementById('tplMultiSign').checked = tpl.mode === 'multiSign';
+  document.getElementById('multiSignHint').style.display = tpl.mode === 'multiSign' ? 'block' : 'none';
+  await refreshMultiSignLockState(id);
 
   const url = await storage.ref(tpl.storagePath).getDownloadURL();
   const res = await fetch(url);
   currentPdfBytes = new Uint8Array(await res.arrayBuffer());
   document.getElementById('tplHint').textContent = '';
   await renderAllPages();
+}
+
+function aiDetectConfigured() {
+  return typeof AI_DETECT_FUNCTION_URL !== 'undefined' && !AI_DETECT_FUNCTION_URL.startsWith('PASTE_');
+}
+
+const KNOWN_FIELD_TYPES = ['text', 'number', 'idNumber', 'phone', 'date', 'checkbox', 'signature'];
+
+async function runAiDetect() {
+  const hint = document.getElementById('tplHint');
+  const btn = document.getElementById('aiDetectBtn');
+  btn.disabled = true;
+  hint.style.color = '';
+  hint.textContent = 'מזהה שדות אוטומטי באמצעות AI... (עשוי לקחת כמה שניות)';
+  try {
+    const pages = pageCanvases.map((canvas, i) => ({
+      page: i, imageBase64: canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '')
+    }));
+    const idToken = await currentUser.getIdToken();
+    const res = await fetch(AI_DETECT_FUNCTION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+      body: JSON.stringify({ pages })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+
+    const detected = Array.isArray(data.fields) ? data.fields : [];
+    detected.forEach((f, i) => {
+      const type = KNOWN_FIELD_TYPES.includes(f.type) ? f.type : 'text';
+      const page = Math.max(0, Math.min(pageCanvases.length - 1, Math.round(f.page) || 0));
+      const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+      currentFields.push({
+        id: newId(), type, page,
+        xPct: clamp01(f.xPct), yPct: clamp01(f.yPct), wPct: clamp01(f.wPct), hPct: clamp01(f.hPct),
+        label: (f.label && String(f.label).trim()) || (FIELD_TYPE_LABELS[type] + ' ' + (i + 1)),
+        autoFillFrom: '', locked: false, required: type === 'signature'
+      });
+    });
+    renderFieldBoxes();
+    hint.textContent = detected.length
+      ? `זוהו ${detected.length} שדות. בדקו/התאימו ואז לחצו "שמירת תבנית".`
+      : 'לא זוהו שדות. אפשר להוסיף שדות ידנית.';
+  } catch (e) {
+    hint.style.color = 'var(--danger)';
+    hint.textContent = 'שגיאה בזיהוי אוטומטי: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Disables the multi-sign toggle while a signing round is actively in
+// progress for this template, so the mode can't be flipped mid-flight.
+async function refreshMultiSignLockState(templateId) {
+  const snap = await db.collection('signingRequests')
+    .where('templateId', '==', templateId)
+    .where('mode', '==', 'multiSign')
+    .where('status', 'in', ['in_progress', 'completing'])
+    .limit(1).get();
+  document.getElementById('tplMultiSign').disabled = !snap.empty;
 }
 
 async function onFileChosen(e) {
@@ -102,6 +176,7 @@ async function renderAllPages() {
   const pagesEl = document.getElementById('tplPages');
   pagesEl.innerHTML = '';
   pageInfos = [];
+  pageCanvases = [];
   const cssWidth = Math.min(700, pagesEl.clientWidth || 700);
 
   for (let i = 0; i < doc.numPages; i++) {
@@ -109,6 +184,7 @@ async function renderAllPages() {
     const wrap = document.createElement('div');
     wrap.className = 'tpl-page-wrap';
     const canvas = document.createElement('canvas');
+    pageCanvases[i] = canvas;
     wrap.appendChild(canvas);
     const overlay = document.createElement('div');
     overlay.className = 'tpl-overlay';
@@ -175,7 +251,7 @@ function wireOverlayDrawing(overlay, pageIndex) {
     const field = {
       id: newId(), type, page: pageIndex,
       xPct: pct.xPct, yPct: pct.yPct, wPct: pct.wPct, hPct: pct.hPct,
-      label: '', autoFillFrom: '', locked: false
+      label: '', autoFillFrom: '', locked: false, required: type === 'signature'
     };
     currentFields.push(field);
     selectedFieldId = field.id;
@@ -263,6 +339,7 @@ function openFieldForm(field) {
   document.getElementById('fld_label').value = field.label || '';
   document.getElementById('fld_autofill').value = field.autoFillFrom || '';
   document.getElementById('fld_locked').checked = !!field.locked;
+  document.getElementById('fld_required').checked = !!field.required;
 }
 
 function closeFieldForm() {
@@ -278,6 +355,7 @@ function applyFieldForm() {
   field.label = document.getElementById('fld_label').value.trim();
   field.autoFillFrom = document.getElementById('fld_autofill').value;
   field.locked = document.getElementById('fld_locked').checked || !!field.autoFillFrom;
+  field.required = document.getElementById('fld_required').checked;
   renderFieldBoxes();
 }
 
@@ -292,6 +370,10 @@ async function saveTemplate() {
   const hint = document.getElementById('tplHint');
   if (!name) { hint.textContent = 'יש להזין שם לתבנית.'; return; }
   if (!currentPdfBytes) { hint.textContent = 'יש לבחור קובץ PDF.'; return; }
+  if (!currentTemplateId && templates.length >= MAX_TEMPLATES) {
+    hint.textContent = `הגעת למכסה של ${MAX_TEMPLATES} תבניות. יש למחוק תבנית קיימת לפני הוספת תבנית חדשה.`;
+    return;
+  }
 
   hint.textContent = 'שומר...';
   try {
@@ -303,6 +385,7 @@ async function saveTemplate() {
     }
     const payload = {
       name, storagePath, fields: currentFields, active: true,
+      mode: document.getElementById('tplMultiSign').checked ? 'multiSign' : 'single',
       pageCount: pageInfos.length,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };

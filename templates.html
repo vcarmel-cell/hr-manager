@@ -71,8 +71,13 @@
       <div class="field"><label>שם התבנית</label><input id="tplName" placeholder="לדוגמא: הסכם עבודה"></div>
       <div class="field"><label>קובץ PDF</label><input type="file" id="tplFile" accept="application/pdf"></div>
     </div>
+    <div class="field">
+      <label><input type="checkbox" id="tplMultiSign" style="width:auto"> מסמך רב-חותמים (כמה אנשים חותמים על אותו מסמך משותף, ברצף)</label>
+    </div>
+    <p class="hint" id="multiSignHint" style="display:none">כל שדה חתימה בתבנית הופך לתפקיד (למשל "עובד", "מנהל") - התווית של שדה החתימה היא שם התפקיד.</p>
     <button class="btn primary" id="saveTemplateBtn">שמירת תבנית</button>
     <button class="btn danger" id="deleteTemplateBtn" style="display:none">מחיקת תבנית</button>
+    <button class="btn" id="aiDetectBtn" style="display:none">זיהוי שדות אוטומטי (AI)</button>
     <p class="hint" id="tplHint"></p>
   </div>
 
@@ -86,6 +91,7 @@
         <button type="button" class="tool-btn" data-type="number">+ מספר</button>
         <button type="button" class="tool-btn" data-type="date">+ תאריך</button>
         <button type="button" class="tool-btn" data-type="idNumber">+ ת.ז.</button>
+        <button type="button" class="tool-btn" data-type="phone">+ טלפון נייד</button>
         <button type="button" class="tool-btn" data-type="checkbox">+ תיבת סימון</button>
         <button type="button" class="tool-btn" data-type="signature">+ חתימה</button>
       </div>
@@ -99,11 +105,12 @@
             <option value="number">מספר</option>
             <option value="date">תאריך</option>
             <option value="idNumber">ת.ז.</option>
+            <option value="phone">טלפון נייד</option>
             <option value="checkbox">תיבת סימון</option>
             <option value="signature">חתימה</option>
           </select>
         </div>
-        <div class="field"><label>תווית (לזיהוי בלבד)</label><input id="fld_label"></div>
+        <div class="field"><label>תווית (לזיהוי בלבד, ובמסמך רב-חותמים - שם התפקיד)</label><input id="fld_label"></div>
         <div class="field"><label>מילוי אוטומטי מתיק העובד</label>
           <select id="fld_autofill">
             <option value="">-- מילוי ידני ע"י החותם --</option>
@@ -123,6 +130,7 @@
           </select>
         </div>
         <div class="field"><label><input type="checkbox" id="fld_locked" style="width:auto"> נעול (החותם לא יכול לערוך)</label></div>
+        <div class="field"><label><input type="checkbox" id="fld_required" style="width:auto"> שדה חובה</label></div>
         <button class="btn primary small" id="applyFieldBtn">עדכון שדה</button>
         <button class="btn danger small" id="deleteFieldBtn">מחיקת שדה</button>
       </div>
