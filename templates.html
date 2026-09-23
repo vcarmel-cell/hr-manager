@@ -20,7 +20,17 @@
      physical properties, not direction-aware, so the overlay (left:0/top:0)
      stayed pinned to the true left edge instead, landing in the empty space
      next to the PDF instead of on top of it. */
-  .tpl-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; direction: ltr; }
+  /* width:fit-content so this shrink-wraps to the canvas's actual rendered
+     width (capped at 700px in JS) instead of stretching block-full to fill
+     .tpl-pages's flex width - without it, on any screen wider than ~700px
+     the wrap left a big empty strip of its own white background next to the
+     document (reported as "the document sits in a giant white frame, the
+     page looks half-empty"). Kept as a normal block (not inline-block/table)
+     so multiple pages still stack one per line instead of flowing side by
+     side. Field math itself was never affected by this (percentages are
+     computed off the overlay's own clientWidth, which already matched the
+     canvas), but it looked broken and made the actual signable area unclear. */
+  .tpl-page-wrap { position: relative; width: fit-content; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; direction: ltr; }
   .tpl-page-wrap canvas { display: block; }
   .tpl-overlay { position: absolute; top: 0; left: 0; cursor: crosshair; }
   .tpl-draft-rect { position: absolute; border: 2px dashed var(--primary); background: rgba(47,111,237,.15); pointer-events: none; box-sizing: border-box; }

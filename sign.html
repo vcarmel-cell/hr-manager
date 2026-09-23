@@ -16,7 +16,9 @@
   /* direction:ltr deliberate - see the same note in templates.html; without
      it the overlay (left:0/top:0, a physical property) drifts away from the
      canvas, which renders flush right in this RTL page. */
-  .sign-page-wrap { position: relative; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; direction: ltr; }
+  /* width:fit-content - see the matching note in templates.html; avoids a
+     block-wide wrap leaving empty white space next to a narrower canvas. */
+  .sign-page-wrap { position: relative; width: fit-content; margin-bottom: 16px; border: 1px solid var(--border); background: #fff; direction: ltr; }
   .sign-page-wrap canvas { display: block; }
   .sign-overlay { position: absolute; top: 0; left: 0; }
   .sign-field { position: absolute; box-sizing: border-box; }
