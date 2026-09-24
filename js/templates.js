@@ -132,7 +132,7 @@ async function renderSubmissionsList(templateId) {
     const r = d.data();
     const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
     return `<li>
-      <span>${escapeHtml(r.employeeName || '')} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail || '')} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+      <span>${escapeHtml(r.employeeName || '')} <span class="muted">· ${statusLabel}${r.recipientEmail ? ' · ' + escapeHtml(r.recipientEmail) : ''} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
       <span>
         ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote-single="${d.id}" data-emp="${r.employeeId}" data-empname="${escapeHtml(r.employeeName || '')}">הוספה לתיק המסמכים</button>` : ''}
         ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}

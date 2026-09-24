@@ -1150,10 +1150,10 @@ async function createSingleSigningRequest(employeeId, employeeData, template, re
   });
 
   const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
-  const emailed = await sendSigningEmail({
+  const emailed = recipientEmail ? await sendSigningEmail({
     to_email: recipientEmail, to_name: employeeData.firstName || '',
     subject: `${template.name} - לחתימה`, link, otp_code: otpCode
-  });
+  }) : false;
   return { requestId: reqRef.id, link, otpCode, emailed };
 }
 
@@ -1163,9 +1163,8 @@ async function sendForSignature() {
   const recipientEmail = document.getElementById('signRecipientEmail').value.trim();
   if (!editingEmployeeId) { hint.textContent = 'יש לשמור את העובד תחילה.'; return; }
   if (!templateId) { hint.textContent = 'יש לבחור תבנית.'; return; }
-  if (!recipientEmail) { hint.textContent = 'יש להזין אימייל נמען.'; return; }
 
-  hint.textContent = 'שולח...';
+  hint.textContent = 'יוצר קישור...';
   try {
     if ((await countTemplateSubmissions(templateId)) >= MAX_SUBMISSIONS_PER_TEMPLATE) {
       hint.textContent = `התבנית הגיעה למכסה של ${MAX_SUBMISSIONS_PER_TEMPLATE} הגשות.`;
@@ -1177,11 +1176,11 @@ async function sendForSignature() {
     document.getElementById('signRecipientEmail').value = '';
     hint.textContent = '';
     await loadSigningRequests(editingEmployeeId);
-    openShareLinkModal(
-      'בקשת החתימה נוצרה',
-      emailed ? 'האימייל נשלח אוטומטית לנמען. אפשר גם להעתיק ולשלוח ידנית (למשל בוואטסאפ):' : 'לא הוגדר שירות שליחת אימייל (EmailJS) - יש להעתיק ולשלוח את הקישור והקוד ידנית:',
-      `קישור לחתימה: ${link}\nקוד אימות: ${otpCode}`
-    );
+    let modalHint;
+    if (emailed) modalHint = 'האימייל נשלח אוטומטית לנמען. אפשר גם להעתיק ולשלוח ידנית (למשל בוואטסאפ):';
+    else if (recipientEmail) modalHint = 'לא הוגדר שירות שליחת אימייל (EmailJS) - יש להעתיק ולשלוח את הקישור והקוד ידנית:';
+    else modalHint = 'לא נשלח מייל (לא הוזן אימייל נמען) - יש להעתיק ולשלוח את הקישור והקוד ידנית:';
+    openShareLinkModal('בקשת החתימה נוצרה', modalHint, `קישור לחתימה: ${link}\nקוד אימות: ${otpCode}`);
   } catch (e) {
     hint.textContent = 'שגיאה: ' + e.message;
   }
@@ -1280,7 +1279,7 @@ async function loadSigningRequests(employeeId) {
       const r = d.data();
       const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
       return `<li>
-        <span>${escapeHtml(r.templateName)} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail)} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+        <span>${escapeHtml(r.templateName)} <span class="muted">· ${statusLabel}${r.recipientEmail ? ' · ' + escapeHtml(r.recipientEmail) : ''} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
         <span>
           ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote="${d.id}">הוספה לתיק המסמכים</button>` : ''}
           ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
