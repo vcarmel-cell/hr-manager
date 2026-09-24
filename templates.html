@@ -74,9 +74,17 @@
   <div class="card">
     <h2>תבניות מסמכים לחתימה</h2>
     <div class="toolbar">
-      <select id="templateSelect"><option value="">-- תבנית חדשה --</option></select>
-      <button class="btn" id="newTemplateBtn">תבנית חדשה</button>
+      <select id="templateSelect" style="display:none"><option value="">-- תבנית חדשה --</option></select>
+      <div class="spacer"></div>
+      <button class="btn primary" id="newTemplateBtn">+ תבנית חדשה</button>
     </div>
+    <table>
+      <thead>
+        <tr><th>שם</th><th>סוג</th><th>עמודים</th><th>שדות</th><th>הגשות</th><th></th></tr>
+      </thead>
+      <tbody id="templatesTbody"></tbody>
+    </table>
+    <div class="empty-state" id="templatesEmpty" style="display:none">אין תבניות עדיין</div>
   </div>
 
   <div class="card">

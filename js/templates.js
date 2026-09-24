@@ -9,6 +9,7 @@ let pageCanvases = [];
 let activeFieldType = null;
 const FIELD_DEFAULT_SIZE_PX = { text: [140, 22], number: [90, 22], date: [110, 22], idNumber: [110, 22], phone: [120, 22], checkbox: [24, 24], signature: [180, 60] };
 const MAX_TEMPLATES = 20;
+const MAX_SUBMISSIONS_PER_TEMPLATE = 100;
 
 init();
 
@@ -56,6 +57,43 @@ async function loadTemplatesList() {
   const sel = document.getElementById('templateSelect');
   sel.innerHTML = '<option value="">-- תבנית חדשה --</option>' +
     templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  await renderTemplatesTable();
+}
+
+// Mirrors admin.js's countTemplateSubmissions - one "submission" is one
+// single-mode send or one multi-sign round (not one per role).
+async function countTemplateSubmissions(templateId) {
+  const [singleSnap, roundsSnap] = await Promise.all([
+    db.collection('signingRequests').where('templateId', '==', templateId).where('mode', '==', 'single').get(),
+    db.collection('signingRounds').where('templateId', '==', templateId).get()
+  ]);
+  return singleSnap.size + roundsSnap.size;
+}
+
+async function renderTemplatesTable() {
+  const tbody = document.getElementById('templatesTbody');
+  document.getElementById('templatesEmpty').style.display = templates.length ? 'none' : 'block';
+  if (!templates.length) { tbody.innerHTML = ''; return; }
+
+  const counts = await Promise.all(templates.map(t => countTemplateSubmissions(t.id)));
+  tbody.innerHTML = templates.map((t, i) => `
+    <tr>
+      <td>${escapeHtml(t.name)}</td>
+      <td>${t.mode === 'multiSign' ? 'רב-חותמים' : 'יחיד'}</td>
+      <td>${t.pageCount || 0}</td>
+      <td>${(t.fields || []).length}</td>
+      <td>${counts[i]} / ${MAX_SUBMISSIONS_PER_TEMPLATE}</td>
+      <td><button class="btn small" data-open-tpl="${t.id}">עריכה</button></td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('[data-open-tpl]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('templateSelect').value = btn.dataset.openTpl;
+      onSelectTemplate();
+      window.scrollTo({ top: document.getElementById('tplName').closest('.card').offsetTop - 10, behavior: 'smooth' });
+    });
+  });
 }
 
 function resetToNewTemplate() {
