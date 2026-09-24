@@ -57,7 +57,7 @@ function currentUserLabel() {
 }
 
 function renderWhoAmI() {
-  const roleLabel = currentRole === 'superadmin' ? 'מנהל-על' : 'מנהל מחלקה';
+  const roleLabel = currentRole === 'superadmin' ? 'אדמין' : 'מנהל מחלקה';
   const displayName = currentUserName || currentUser.email;
   const who = document.getElementById('whoAmI');
   who.innerHTML = `${escapeHtml(displayName)} (${roleLabel})`;
@@ -238,7 +238,7 @@ async function loadUsers() {
       <span>
         ${escapeHtml(u.name || u.email)} ${u.id === currentUser.uid ? '<span class="muted">(את/ה)</span>' : ''}
         <span class="badge ${u.active ? 'active' : 'terminated'}">${u.active ? 'פעיל' : 'מושבת'}</span>
-        <span class="muted">${u.role === 'superadmin' ? 'מנהל-על' : 'מנהל מחלקה'}</span>
+        <span class="muted">${u.role === 'superadmin' ? 'אדמין' : 'מנהל מחלקה'}</span>
         ${u.role === 'manager' ? `<span class="muted"> · ${(u.departmentIds || []).map(id => escapeHtml(deptName(id))).join(', ') || 'ללא מחלקות'}</span>` : ''}
       </span>
       <span>

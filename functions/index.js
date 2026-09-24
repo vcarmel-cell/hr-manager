@@ -89,7 +89,7 @@ exports.detectFields = onRequest(
         return;
       }
     }
-    if (!authorized) { res.status(403).json({ error: 'אין הרשאה לתכונה זו (מנהל-על בלבד)' }); return; }
+    if (!authorized) { res.status(403).json({ error: 'אין הרשאה לתכונה זו (אדמין בלבד)' }); return; }
 
     const pages = req.body && req.body.pages;
     if (!Array.isArray(pages) || !pages.length || pages.length > 30) {
