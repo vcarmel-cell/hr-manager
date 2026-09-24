@@ -1254,6 +1254,7 @@ async function loadSigningRequests(employeeId) {
         <span>
           ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote="${d.id}">הוספה לתיק המסמכים</button>` : ''}
           ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+          ${r.status === 'sent' ? `<button class="btn small" data-copy-single-link="${d.id}">העתקת קישור</button>` : ''}
           ${r.status === 'sent' ? `<button class="btn small danger" data-expire="${d.id}">ביטול</button>` : ''}
         </span>
       </li>`;
@@ -1306,6 +1307,15 @@ async function loadSigningRequests(employeeId) {
   ul.querySelectorAll('[data-copy-role-link]').forEach(btn => {
     btn.addEventListener('click', () => {
       const link = new URL('sign.html?req=' + btn.dataset.copyRoleLink, location.href).toString();
+      navigator.clipboard.writeText(link).then(
+        () => alert('הקישור הועתק (הקוד האישי נשלח באימייל בזמן היצירה ואינו ניתן לשליפה חוזרת).'),
+        () => alert('הקישור: ' + link)
+      );
+    });
+  });
+  ul.querySelectorAll('[data-copy-single-link]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const link = new URL('sign.html?req=' + btn.dataset.copySingleLink, location.href).toString();
       navigator.clipboard.writeText(link).then(
         () => alert('הקישור הועתק (הקוד האישי נשלח באימייל בזמן היצירה ואינו ניתן לשליפה חוזרת).'),
         () => alert('הקישור: ' + link)
