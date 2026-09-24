@@ -130,13 +130,19 @@ async function onSelectTemplate() {
   document.getElementById('tplHint').textContent = 'טוען PDF...';
   document.getElementById('tplMultiSign').checked = tpl.mode === 'multiSign';
   document.getElementById('multiSignHint').style.display = tpl.mode === 'multiSign' ? 'block' : 'none';
-  await refreshMultiSignLockState(id);
 
-  const url = await storage.ref(tpl.storagePath).getDownloadURL();
-  const res = await fetch(url);
-  currentPdfBytes = new Uint8Array(await res.arrayBuffer());
-  document.getElementById('tplHint').textContent = '';
-  await renderAllPages();
+  try {
+    await refreshMultiSignLockState(id);
+    const url = await storage.ref(tpl.storagePath).getDownloadURL();
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    currentPdfBytes = new Uint8Array(await res.arrayBuffer());
+    document.getElementById('tplHint').textContent = '';
+    await renderAllPages();
+  } catch (e) {
+    console.error('onSelectTemplate failed:', e);
+    document.getElementById('tplHint').textContent = 'שגיאה בטעינת התבנית: ' + e.message;
+  }
 }
 
 function aiDetectConfigured() {
