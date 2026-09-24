@@ -42,6 +42,7 @@ async function init() {
   wireNotifSettingsView();
   wireMfa();
   wireBulkSendView();
+  wireShareLinkModal();
 
   await loadDepartments();
   await loadFieldDefs();
@@ -457,6 +458,30 @@ function wireNotifications() {
 /* ---- MFA (two-factor, email-code based - see mfaEmailSecrets/mfaEmailChallenges
    in firestore.rules for why this is custom rather than Firebase's native
    phone MFA) ---- */
+
+function wireShareLinkModal() {
+  document.getElementById('closeShareLinkModalBtn').addEventListener('click', closeShareLinkModal);
+  document.getElementById('copyShareLinkBtn').addEventListener('click', () => {
+    const textarea = document.getElementById('shareLinkText');
+    textarea.select();
+    navigator.clipboard.writeText(textarea.value).then(
+      () => { document.getElementById('copyShareLinkBtn').textContent = 'הועתק!'; setTimeout(() => { document.getElementById('copyShareLinkBtn').textContent = 'העתקת הכל'; }, 1500); },
+      () => alert('לא ניתן היה להעתיק אוטומטית - יש לסמן את הטקסט ולהעתיק ידנית (Ctrl+C).')
+    );
+  });
+}
+
+function openShareLinkModal(title, hint, text) {
+  document.getElementById('shareLinkModalTitle').textContent = title;
+  document.getElementById('shareLinkModalHint').textContent = hint;
+  document.getElementById('shareLinkText').value = text;
+  document.getElementById('copyShareLinkBtn').textContent = 'העתקת הכל';
+  document.getElementById('shareLinkModalBackdrop').style.display = 'flex';
+}
+
+function closeShareLinkModal() {
+  document.getElementById('shareLinkModalBackdrop').style.display = 'none';
+}
 
 let mfaEmailEnabled = false;
 
@@ -1152,9 +1177,10 @@ async function sendForSignature() {
     document.getElementById('signRecipientEmail').value = '';
     hint.textContent = '';
     await loadSigningRequests(editingEmployeeId);
-    alert(
-      `בקשת החתימה נוצרה.\n\nקישור: ${link}\nקוד אימות: ${otpCode}\n\n` +
-      (emailed ? 'האימייל נשלח אוטומטית לנמען.' : 'לא הוגדר שירות שליחת אימייל (EmailJS) - יש להעתיק ולשלוח את הקישור והקוד ידנית.')
+    openShareLinkModal(
+      'בקשת החתימה נוצרה',
+      emailed ? 'האימייל נשלח אוטומטית לנמען. אפשר גם להעתיק ולשלוח ידנית (למשל בוואטסאפ):' : 'לא הוגדר שירות שליחת אימייל (EmailJS) - יש להעתיק ולשלוח את הקישור והקוד ידנית:',
+      `קישור לחתימה: ${link}\nקוד אימות: ${otpCode}`
     );
   } catch (e) {
     hint.textContent = 'שגיאה: ' + e.message;
@@ -1228,7 +1254,11 @@ async function startMultiSignRound() {
     document.querySelectorAll('#multiSignRoles .role-name, #multiSignRoles .role-email').forEach(el => el.value = '');
     hint.textContent = '';
     await loadSigningRequests(editingEmployeeId);
-    alert('סבב חתימות נוצר.\n\n' + linksSummary.join('\n\n'));
+    openShareLinkModal(
+      'סבב חתימות נוצר',
+      'קישור וקוד נפרדים לכל חותם/ת - אפשר להעתיק ולשלוח ידנית (למשל בוואטסאפ):',
+      linksSummary.join('\n\n')
+    );
   } catch (e) {
     hint.textContent = 'שגיאה: ' + e.message;
   }

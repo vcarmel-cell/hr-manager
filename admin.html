@@ -179,6 +179,19 @@
   </div>
 </div>
 
+<!-- Share signing link (shown once, right after a request/round is created) -->
+<div class="modal-backdrop" id="shareLinkModalBackdrop" style="display:none;z-index:60">
+  <div class="modal" style="max-width:480px">
+    <h2 id="shareLinkModalTitle">בקשת החתימה נוצרה</h2>
+    <p class="hint" id="shareLinkModalHint"></p>
+    <textarea id="shareLinkText" readonly rows="6" style="width:100%;font-family:inherit;font-size:13px;resize:vertical"></textarea>
+    <div class="modal-actions">
+      <button class="btn primary" id="copyShareLinkBtn">העתקת הכל</button>
+      <button class="btn" id="closeShareLinkModalBtn">סגירה</button>
+    </div>
+  </div>
+</div>
+
 <!-- Employee modal -->
 <div class="modal-backdrop" id="employeeModalBackdrop" style="display:none">
   <div class="modal">
