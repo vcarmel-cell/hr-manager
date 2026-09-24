@@ -35,6 +35,10 @@ async function init() {
     document.getElementById('multiSignHint').style.display = e.target.checked ? 'block' : 'none';
   });
   document.getElementById('aiDetectBtn').addEventListener('click', runAiDetect);
+  document.getElementById('closeSubmissionsModalBtn').addEventListener('click', closeSubmissionsModal);
+  document.getElementById('submissionsModalBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'submissionsModalBackdrop') closeSubmissionsModal();
+  });
 
   await loadPdfLib();
   await loadTemplatesList();
@@ -82,7 +86,7 @@ async function renderTemplatesTable() {
       <td>${t.mode === 'multiSign' ? 'רב-חותמים' : 'יחיד'}</td>
       <td>${t.pageCount || 0}</td>
       <td>${(t.fields || []).length}</td>
-      <td>${counts[i]} / ${MAX_SUBMISSIONS_PER_TEMPLATE}</td>
+      <td><button class="btn small" data-view-submissions="${t.id}">${counts[i]} / ${MAX_SUBMISSIONS_PER_TEMPLATE}</button></td>
       <td><button class="btn small" data-open-tpl="${t.id}">עריכה</button></td>
     </tr>
   `).join('');
@@ -94,6 +98,121 @@ async function renderTemplatesTable() {
       window.scrollTo({ top: document.getElementById('tplName').closest('.card').offsetTop - 10, behavior: 'smooth' });
     });
   });
+  tbody.querySelectorAll('[data-view-submissions]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const t = templates.find(x => x.id === btn.dataset.viewSubmissions);
+      openSubmissionsModal(t.id, t.name);
+    });
+  });
+}
+
+const SIGNING_STATUS_LABELS = { sent: 'ממתין', signed: 'נחתם', expired: 'פג תוקף' };
+const ROUND_STATUS_LABELS = { in_progress: 'בתהליך', completing: 'משלים...', completed: 'הושלם' };
+
+function closeSubmissionsModal() {
+  document.getElementById('submissionsModalBackdrop').style.display = 'none';
+}
+
+async function openSubmissionsModal(templateId, templateName) {
+  document.getElementById('submissionsModalTitle').textContent = `הגשות - ${templateName}`;
+  document.getElementById('submissionsModalBackdrop').style.display = 'flex';
+  await renderSubmissionsList(templateId);
+}
+
+async function renderSubmissionsList(templateId) {
+  const list = document.getElementById('submissionsList');
+  list.innerHTML = '<li class="muted">טוען...</li>';
+
+  const [singleSnap, roundsSnap] = await Promise.all([
+    db.collection('signingRequests').where('templateId', '==', templateId).where('mode', '==', 'single').orderBy('createdAt', 'desc').get(),
+    db.collection('signingRounds').where('templateId', '==', templateId).orderBy('createdAt', 'desc').get()
+  ]);
+
+  const singleRows = singleSnap.docs.map(d => {
+    const r = d.data();
+    const statusLabel = r.status === 'sent' && r.otpVerified ? 'בתהליך מילוי' : (SIGNING_STATUS_LABELS[r.status] || r.status);
+    return `<li>
+      <span>${escapeHtml(r.employeeName || '')} <span class="muted">· ${statusLabel} · ${escapeHtml(r.recipientEmail || '')} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+      <span>
+        ${r.status === 'signed' && !r.resultDocumentId ? `<button class="btn small" data-promote-single="${d.id}" data-emp="${r.employeeId}" data-empname="${escapeHtml(r.employeeName || '')}">הוספה לתיק המסמכים</button>` : ''}
+        ${r.status === 'signed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+      </span>
+    </li>`;
+  });
+
+  const roundRows = roundsSnap.docs.map(d => {
+    const r = d.data();
+    const totalRoles = (r.roles || []).length;
+    const summary = r.status === 'in_progress'
+      ? `${Object.keys(r.signerNames || {}).length}/${totalRoles} חתמו`
+      : (ROUND_STATUS_LABELS[r.status] || r.status);
+    return `<li>
+      <span>${escapeHtml(r.employeeName || '')} <span class="muted">· רב-חותמים · ${summary} ${r.createdAt ? '· ' + fmtDate(r.createdAt) : ''}</span></span>
+      <span>
+        ${r.status === 'completed' && !r.resultDocumentId ? `<button class="btn small" data-promote-round="${d.id}" data-emp="${r.employeeId}" data-empname="${escapeHtml(r.employeeName || '')}">הוספה לתיק המסמכים</button>` : ''}
+        ${r.status === 'completed' && r.resultDocumentId ? '<span class="badge active">נוסף לתיק</span>' : ''}
+      </span>
+    </li>`;
+  });
+
+  list.innerHTML = singleRows.join('') + roundRows.join('') || '<li class="muted">אין הגשות עדיין</li>';
+
+  list.querySelectorAll('[data-promote-single]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      await promoteSignedSingleFromTemplate(btn.dataset.emp, btn.dataset.promoteSingle, btn.dataset.empname);
+      await renderSubmissionsList(templateId);
+      await renderTemplatesTable();
+    });
+  });
+  list.querySelectorAll('[data-promote-round]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      await promoteSignedRoundFromTemplate(btn.dataset.emp, btn.dataset.promoteRound, btn.dataset.empname);
+      await renderSubmissionsList(templateId);
+      await renderTemplatesTable();
+    });
+  });
+}
+
+async function promoteSignedSingleFromTemplate(employeeId, requestId, employeeName) {
+  try {
+    const reqDoc = await db.collection('signingRequests').doc(requestId).get();
+    const r = reqDoc.data();
+    const url = await storage.ref(`signingRequests/${requestId}/signed.pdf`).getDownloadURL();
+    const blob = await (await fetch(url)).blob();
+
+    const docRef = db.collection('employees').doc(employeeId).collection('documents').doc();
+    const destPath = `documents/${employeeId}/${docRef.id}_signed.pdf`;
+    await storage.ref(destPath).put(blob);
+    await docRef.set({
+      name: `${r.templateName} (חתום)`, storagePath: destPath, contentType: 'application/pdf', sizeBytes: blob.size,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUserName || currentUser.email
+    });
+    await db.collection('signingRequests').doc(requestId).update({ resultDocumentId: docRef.id });
+  } catch (e) {
+    alert(`שגיאה בהוספת המסמך לתיק של ${employeeName}: ` + e.message);
+  }
+}
+
+async function promoteSignedRoundFromTemplate(employeeId, roundId, employeeName) {
+  try {
+    const roundDoc = await db.collection('signingRounds').doc(roundId).get();
+    const r = roundDoc.data();
+    const url = await storage.ref(`signingRounds/${roundId}/signed.pdf`).getDownloadURL();
+    const blob = await (await fetch(url)).blob();
+
+    const docRef = db.collection('employees').doc(employeeId).collection('documents').doc();
+    const destPath = `documents/${employeeId}/${docRef.id}_signed.pdf`;
+    await storage.ref(destPath).put(blob);
+    await docRef.set({
+      name: `${r.templateName} (חתום - רב-חותמים)`, storagePath: destPath, contentType: 'application/pdf', sizeBytes: blob.size,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(), uploadedBy: currentUserName || currentUser.email
+    });
+    await db.collection('signingRounds').doc(roundId).update({ resultDocumentId: docRef.id });
+  } catch (e) {
+    alert(`שגיאה בהוספת המסמך לתיק של ${employeeName}: ` + e.message);
+  }
 }
 
 function resetToNewTemplate() {
