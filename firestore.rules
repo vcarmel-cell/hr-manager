@@ -61,7 +61,15 @@ service cloud.firestore {
     match /employees/{employeeId} {
       allow read: if isAdminOrManagerOfDept(resource.data.departmentId) || isEmployeeSelf(employeeId);
       allow create: if isAdminOrManagerOfDept(request.resource.data.departmentId);
-      allow update: if isAdminOrManagerOfDept(resource.data.departmentId) || isAdminOrManagerOfDept(request.resource.data.departmentId);
+      // Editing requires authority over the employee's CURRENT department; a
+      // department-changing edit additionally requires authority over the
+      // NEW department too (AND, not OR) - otherwise any manager could pull
+      // an employee from a department they have no relationship to into
+      // their own just by rewriting departmentId in the same write.
+      allow update: if isSuperAdmin()
+        || (isManagerOfDept(resource.data.departmentId)
+            && (request.resource.data.departmentId == resource.data.departmentId
+                || isManagerOfDept(request.resource.data.departmentId)));
       allow delete: if isSuperAdmin();
 
       match /equipment/{itemId} {
