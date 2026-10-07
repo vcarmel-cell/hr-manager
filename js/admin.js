@@ -993,6 +993,7 @@ async function loadTemplatesForSelect() {
 function wireBulkSendView() {
   document.getElementById('bulkTemplateSelect').addEventListener('change', renderBulkSendView);
   document.getElementById('bulkDeptFilter').addEventListener('change', renderBulkEmployeesList);
+  document.getElementById('bulkSendEmail').addEventListener('change', renderBulkEmployeesList);
   document.getElementById('bulkSelectAllBtn').addEventListener('click', () => {
     document.querySelectorAll('#bulkEmployeesList input[type=checkbox]').forEach(cb => cb.checked = true);
   });
@@ -1012,17 +1013,18 @@ function renderBulkSendView() {
 
 function renderBulkEmployeesList() {
   const deptFilter = document.getElementById('bulkDeptFilter').value;
-  const list = employees.filter(e => e.status === 'active' && (!deptFilter || e.departmentId === deptFilter) && e.email);
+  const requireEmail = document.getElementById('bulkSendEmail').checked;
+  const list = employees.filter(e => e.status === 'active' && (!deptFilter || e.departmentId === deptFilter) && (!requireEmail || e.email));
   const ul = document.getElementById('bulkEmployeesList');
   ul.innerHTML = list.map(e => `
     <li>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" data-emp-id="${e.id}" style="width:auto">
         ${escapeHtml((e.firstName || '') + ' ' + (e.lastName || ''))}
-        <span class="muted">· ${escapeHtml(deptName(e.departmentId))} · ${escapeHtml(e.email)}</span>
+        <span class="muted">· ${escapeHtml(deptName(e.departmentId))}${e.email ? ' · ' + escapeHtml(e.email) : ''}</span>
       </label>
     </li>
-  `).join('') || '<li class="muted">אין עובדים פעילים עם כתובת אימייל התואמים לסינון</li>';
+  `).join('') || `<li class="muted">אין עובדים פעילים${requireEmail ? ' עם כתובת אימייל' : ''} התואמים לסינון</li>`;
 }
 
 async function bulkSend() {
@@ -1040,14 +1042,16 @@ async function bulkSend() {
     return;
   }
 
+  const sendEmail = document.getElementById('bulkSendEmail').checked;
+
   document.getElementById('bulkSendBtn').disabled = true;
   const results = [];
   for (const empId of selectedIds) {
     const emp = employees.find(e => e.id === empId);
     hint.textContent = `שולח... (${results.length + 1}/${selectedIds.length})`;
     try {
-      const { emailed } = await createSingleSigningRequest(empId, emp, template, emp.email);
-      results.push({ emp, ok: true, emailed });
+      const { link, otpCode, emailed } = await createSingleSigningRequest(empId, emp, template, emp.email || '', sendEmail);
+      results.push({ emp, ok: true, emailed, link, otpCode });
     } catch (e) {
       results.push({ emp, ok: false, error: e.message });
     }
@@ -1057,10 +1061,35 @@ async function bulkSend() {
   hint.textContent = '';
 
   const sentOk = results.filter(r => r.ok).length;
-  resultsEl.innerHTML = `<p><strong>נשלחו ${sentOk} מתוך ${results.length}.</strong></p>` +
-    '<ul class="list-mini">' + results.filter(r => !r.ok || !r.emailed).map(r =>
-      `<li class="muted">${escapeHtml((r.emp.firstName || '') + ' ' + (r.emp.lastName || ''))}: ${r.ok ? 'נוצר, אך לא נשלח אימייל (EmailJS לא מוגדר)' : 'נכשל - ' + escapeHtml(r.error)}</li>`
+  const successResults = results.filter(r => r.ok);
+  resultsEl.innerHTML = `<p><strong>נוצרו ${sentOk} מתוך ${results.length} בקשות חתימה.</strong></p>` +
+    (successResults.length ? `<button class="btn small" id="bulkCopyAllBtn">העתקת כל הקישורים</button>` : '') +
+    '<ul class="list-mini">' + results.map((r, i) => r.ok
+      ? `<li>
+          <span>${escapeHtml((r.emp.firstName || '') + ' ' + (r.emp.lastName || ''))} <span class="muted">· ${r.emailed ? 'נשלח במייל' : 'לא נשלח מייל - יש להעתיק ולשלוח ידנית'}</span></span>
+          <button class="btn small" data-bulk-copy="${i}">העתקת קישור</button>
+        </li>`
+      : `<li class="muted">${escapeHtml((r.emp.firstName || '') + ' ' + (r.emp.lastName || ''))}: נכשל - ${escapeHtml(r.error)}</li>`
     ).join('') + '</ul>';
+
+  resultsEl.querySelectorAll('[data-bulk-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = results[Number(btn.dataset.bulkCopy)];
+      navigator.clipboard.writeText(`קישור לחתימה: ${r.link}\nקוד אימות: ${r.otpCode}`).then(
+        () => { btn.textContent = 'הועתק!'; setTimeout(() => { btn.textContent = 'העתקת קישור'; }, 1500); },
+        () => alert(`קישור: ${r.link}\nקוד: ${r.otpCode}`)
+      );
+    });
+  });
+  const copyAllBtn = document.getElementById('bulkCopyAllBtn');
+  if (copyAllBtn) {
+    copyAllBtn.addEventListener('click', () => {
+      const text = successResults.map(r =>
+        `${(r.emp.firstName || '') + ' ' + (r.emp.lastName || '')}: ${r.link} (קוד: ${r.otpCode})`
+      ).join('\n\n');
+      openShareLinkModal('כל הקישורים שנוצרו', 'ניתן להעתיק ולשלוח ידנית (למשל בוואטסאפ):', text);
+    });
+  }
 }
 
 function resolveAutoFillValue(key, employeeData) {
@@ -1130,7 +1159,7 @@ async function countTemplateSubmissions(templateId) {
 // Shared by the single "שליחה לחתימה" button and bulk-send - creates one
 // OTP-gated signingRequests doc for one employee and emails (or returns, if
 // EmailJS isn't configured) the link+code.
-async function createSingleSigningRequest(employeeId, employeeData, template, recipientEmail) {
+async function createSingleSigningRequest(employeeId, employeeData, template, recipientEmail, sendEmail = true) {
   const fields = JSON.parse(JSON.stringify(template.fields || []));
   const autoFilledValues = {};
   fields.forEach(f => { if (f.autoFillFrom) autoFilledValues[f.id] = resolveAutoFillValue(f.autoFillFrom, employeeData); });
@@ -1150,7 +1179,7 @@ async function createSingleSigningRequest(employeeId, employeeData, template, re
   });
 
   const link = new URL('sign.html?req=' + reqRef.id, location.href).toString();
-  const emailed = recipientEmail ? await sendSigningEmail({
+  const emailed = (recipientEmail && sendEmail) ? await sendSigningEmail({
     to_email: recipientEmail, to_name: employeeData.firstName || '',
     subject: `${template.name} - לחתימה`, link, otp_code: otpCode
   }) : false;
